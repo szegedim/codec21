@@ -1,4 +1,4 @@
-# CODEC20 - Low Latency Audio Video Codec
+# CODEC21 - Low Latency Audio Video Codec
 
 ## Patent and Trademark
 
