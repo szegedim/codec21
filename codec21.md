@@ -327,7 +327,7 @@ is gradually updated with progressive updates that are swapped in later.
 bit pixels. The size is up to 256 pixels long like GIF but 2, 4, and 16 pixel palettes are encouraged based on our experimentation.
  - No resolution is provided by the encoder since headers are non existent to reduce engineering cost.
  - The client can opt for an optimal resolution to be sent in the URL or filename:
-https://c20.remoting.example.com/600x800 file://stream600x800.c20
+https://c21.remoting.example.com/600x800 file://stream600x800.c21
  - Each pixel should represent a 1/60 degree viewing angle to maintain text quality.
  - The viewport is set by client driven actions like scrolling.
  - The viewing angle constraint may require the client to implement paging
