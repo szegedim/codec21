@@ -1,4 +1,4 @@
-package codec20
+package codec21
 
 import (
 	"bufio"
@@ -358,7 +358,7 @@ func buildPaletteLinearComplexity(current *Image, bounds image.Rectangle, bits u
 	return palette
 }
 
-type Codec20LUTWriter struct {
+type Codec21LUTWriter struct {
 	bits    uint8
 	length  int
 	palette []Pixel
@@ -366,7 +366,7 @@ type Codec20LUTWriter struct {
 	idx     []uint8
 }
 
-func (t *Codec20LUTWriter) WriteBits(index int) error {
+func (t *Codec21LUTWriter) WriteBits(index int) error {
 	if int(uint8(index)) != index {
 		return fmt.Errorf("bad index")
 	}
@@ -385,7 +385,7 @@ func (t *Codec20LUTWriter) WriteBits(index int) error {
 	return nil
 }
 
-func (t *Codec20LUTWriter) Flush() ([]byte, error) {
+func (t *Codec21LUTWriter) Flush() ([]byte, error) {
 	if t.length == 0 || t.length > 255 {
 		return nil, fmt.Errorf("length error")
 	}
@@ -436,7 +436,7 @@ func (t *Codec20LUTWriter) Flush() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type Codec20LUTReader struct {
+type Codec21LUTReader struct {
 	base    *bufio.Reader
 	bits    uint8
 	pos     int
@@ -446,7 +446,7 @@ type Codec20LUTReader struct {
 	idx     []uint8
 }
 
-func (t *Codec20LUTReader) ReadIndex() (Pixel, error) {
+func (t *Codec21LUTReader) ReadIndex() (Pixel, error) {
 	if t.pos >= t.length {
 		buf, err := t.base.Peek(2)
 		if err != nil || len(buf) < 2 {
@@ -1028,7 +1028,7 @@ func CompressLUT(current *Image, bounds image.Rectangle, bits uint8) ([]byte, in
 		return nil, 0, fmt.Errorf("single line error")
 	}
 
-	writer := Codec20LUTWriter{bits: bits, length: 0, buf: bytes.Buffer{}, palette: nil}
+	writer := Codec21LUTWriter{bits: bits, length: 0, buf: bytes.Buffer{}, palette: nil}
 	length := uint8(1 << bits)
 	n := int(0)
 
@@ -1069,7 +1069,7 @@ func DecompressLUT(result *Image, cursor image.Point, buffered *bufio.Reader, bi
 		return 0, fmt.Errorf("nomatch")
 	}
 
-	codec := Codec20LUTReader{base: buffered, bits: 0, pos: 0, length: 0, pixels: nil, palette: nil}
+	codec := Codec21LUTReader{base: buffered, bits: 0, pos: 0, length: 0, pixels: nil, palette: nil}
 	bounds := (*result).Bounds().Intersect(image.Rect(cursor.X, cursor.Y, (*result).Bounds().Max.X, cursor.Y+1))
 
 	n := int(0)

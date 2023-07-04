@@ -1,3 +1,3 @@
-module example.com/tools/codec20
+module gitlab.com/schmied.us/codec21
 
-go 1.14
+go 1.19

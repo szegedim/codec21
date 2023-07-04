@@ -1,4 +1,4 @@
-package codec20
+package codec21
 
 import (
 	"bufio"
@@ -20,22 +20,23 @@ import (
 // You should have received a copy of the CC0 Public Domain Dedication along with this software.
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 
-func testCodec20Clean(t *testing.T) {
+func testCODEC21Clean(t *testing.T) {
+	// Technically we could use a random path in /tmp but this is easier to debug.
 	_ = os.RemoveAll("./testpath/testout")
 	_ = os.Mkdir("./testpath/testout", 0700)
 }
 
-func TestCodec20Parts(t *testing.T) {
-	testCodec20Clean(t)
-	TestCodec20Raw(t)
-	TestCodec20Masked(t)
-	TestCodec20Linear(t)
-	TestCodec20LookupBit1(t)
-	TestCodec20LookupBit2(t)
-	TestCodec20LookupBit4(t)
+func TestCODEC21Modules(t *testing.T) {
+	testCODEC21Clean(t)
+	TestCODEC21Raw(t)
+	TestCODEC21Masked(t)
+	TestCODEC21LinearRegressionMethod(t)
+	TestCODEC21LookupBit1(t)
+	TestCODEC21LookupBit2(t)
+	TestCODEC21LookupBit4(t)
 }
 
-func TestCodec20Full(t *testing.T) {
+func TestCODEC21EndToEnd(t *testing.T) {
 	img, _, err := readImage()
 	if err != nil {
 		t.Errorf("%s", os.Environ())
@@ -49,8 +50,8 @@ func TestCodec20Full(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		postfix := fmt.Sprintf("_full_%vms", i*16)
 		{
-			fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
-			defer fil.Close()
+			fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
+			defer func() { _ = fil.Close() }()
 			wr := bufio.NewWriter(fil)
 
 			current := NewImage(img)
@@ -65,7 +66,7 @@ func TestCodec20Full(t *testing.T) {
 	}
 }
 
-func TestCodec20Raw(t *testing.T) {
+func TestCODEC21Raw(t *testing.T) {
 	img, _, err := readImage()
 	if err != nil {
 		t.Errorf("%s", os.Environ())
@@ -78,9 +79,9 @@ func TestCodec20Raw(t *testing.T) {
 	referencePtr := &reference
 
 	{
-		fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
-		defer fil.Close()
-		wr := bufio.NewWriter(fil)
+		c21, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
+		defer func() { _ = c21.Close() }()
+		wr := bufio.NewWriter(c21)
 
 		cimg := NewImage(img)
 		cursor := image.Point{(*img).Bounds().Min.X, (*img).Bounds().Min.Y}
@@ -117,7 +118,7 @@ func TestCodec20Raw(t *testing.T) {
 	referencePtr = verifyImage(img, postfix, referencePtr)
 }
 
-func TestCodec20Masked(t *testing.T) {
+func TestCODEC21Masked(t *testing.T) {
 	img, _, err := readImage()
 	if err != nil {
 		t.Errorf("%s", os.Environ())
@@ -131,12 +132,12 @@ func TestCodec20Masked(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		postfix := fmt.Sprintf("_quantized_%vms", i*16)
 
-		fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
-		defer fil.Close()
+		fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
+		defer func() { _ = fil.Close() }()
 		wr := bufio.NewWriter(fil)
 
 		cimg := NewImage(img)
-		cursor := image.Point{(*img).Bounds().Min.X, (*img).Bounds().Min.Y}
+		cursor := image.Point{X: (*img).Bounds().Min.X, Y: (*img).Bounds().Min.Y}
 
 		for cursor.Y < cimg.Bounds().Max.Y {
 			buf, _, newRow, err := CompressNewLine(&cimg, referencePtr, cursor)
@@ -169,7 +170,7 @@ func TestCodec20Masked(t *testing.T) {
 	}
 }
 
-func TestCodec20Linear(t *testing.T) {
+func TestCODEC21LinearRegressionMethod(t *testing.T) {
 	img, _, err := readImage()
 	if err != nil {
 		t.Errorf("%s", os.Environ())
@@ -181,9 +182,9 @@ func TestCodec20Linear(t *testing.T) {
 	referencePtr := &reference
 
 	{
-		fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
-		defer fil.Close()
-		wr := bufio.NewWriter(fil)
+		c21, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
+		defer func() { _ = c21.Close() }()
+		wr := bufio.NewWriter(c21)
 
 		cimg := NewImage(img)
 		cursor := image.Point{(*img).Bounds().Min.X, (*img).Bounds().Min.Y}
@@ -217,19 +218,19 @@ func TestCodec20Linear(t *testing.T) {
 	referencePtr = verifyImage(img, postfix, referencePtr)
 }
 
-func TestCodec20LookupBit1(t *testing.T) {
-	testLookup(t, 1, 128)
+func TestCODEC21LookupBit1(t *testing.T) {
+	testLookupTableMethod(t, 1, 128)
 }
 
-func TestCodec20LookupBit2(t *testing.T) {
-	testLookup(t, 2, 128)
+func TestCODEC21LookupBit2(t *testing.T) {
+	testLookupTableMethod(t, 2, 128)
 }
 
-func TestCodec20LookupBit4(t *testing.T) {
-	testLookup(t, 4, 128)
+func TestCODEC21LookupBit4(t *testing.T) {
+	testLookupTableMethod(t, 4, 128)
 }
 
-func testLookup(t *testing.T, bits uint8, size uint8) {
+func testLookupTableMethod(t *testing.T, bits uint8, size uint8) {
 	img, _, err := readImage()
 	if err != nil {
 		t.Errorf("%s", os.Environ())
@@ -241,15 +242,15 @@ func testLookup(t *testing.T, bits uint8, size uint8) {
 	referencePtr := &reference
 
 	{
-		fil, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
-		defer fil.Close()
-		wr := bufio.NewWriter(fil)
+		c21, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
+		defer func() { _ = c21.Close() }()
+		wr := bufio.NewWriter(c21)
 
-		cimg := NewImage(img)
-		cursor := image.Point{(*img).Bounds().Min.X, (*img).Bounds().Min.Y}
+		c21Image := NewImage(img)
+		cursor := image.Point{X: (*img).Bounds().Min.X, Y: (*img).Bounds().Min.Y}
 
-		for cursor.Y < cimg.Bounds().Max.Y {
-			buf, _, newRow, err := CompressNewLine(&cimg, referencePtr, cursor)
+		for cursor.Y < c21Image.Bounds().Max.Y {
+			buf, _, newRow, err := CompressNewLine(&c21Image, referencePtr, cursor)
 			if err == nil && buf != nil {
 				cursor = newRow
 				var n int
@@ -260,8 +261,8 @@ func testLookup(t *testing.T, bits uint8, size uint8) {
 				continue
 			}
 
-			chunk := cimg.Bounds().Intersect(image.Rectangle{cursor, cursor.Add(image.Point{int(size), 1})})
-			buf, n, err := CompressLUT(&cimg, chunk, bits)
+			chunk := c21Image.Bounds().Intersect(image.Rectangle{Min: cursor, Max: cursor.Add(image.Point{int(size), 1})})
+			buf, n, err := CompressLUT(&c21Image, chunk, bits)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -283,23 +284,23 @@ func testLookup(t *testing.T, bits uint8, size uint8) {
 }
 
 func readImage() (*image.Image, string, error) {
-	fimg, err := os.Open("./testpath/benchmark.png")
+	pngFile, err := os.Open("./testpath/benchmark.png")
 	if err != nil {
 		return nil, "", err
 	}
-	defer fimg.Close()
-	img, msg, err1 := image.Decode(bufio.NewReader(fimg))
+	defer func() { _ = pngFile.Close() }()
+	img, msg, err1 := image.Decode(bufio.NewReader(pngFile))
 	return &img, msg, err1
 }
 
 func verifyImage(img *image.Image, postfix string, reference *Image) (current *Image) {
-	fd, _ := os.Open(fmt.Sprintf("testpath/testout/testout%v.c20", postfix))
+	fd, _ := os.Open(fmt.Sprintf("testpath/testout/testout%v.c21", postfix))
 	decompressed, _ := Decompress((*img).Bounds(), bufio.NewReader(fd), reference)
 	decompressedImage := Image(decompressed)
 	// TODO compare
-	fpng, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.png", postfix))
-	res := bufio.NewWriter(fpng)
-	defer fpng.Close()
+	pngFile, _ := os.Create(fmt.Sprintf("testpath/testout/testout%v.png", postfix))
+	res := bufio.NewWriter(pngFile)
+	defer func() { _ = pngFile.Close() }()
 	_ = png.Encode(res, decompressed.base)
 	_ = res.Flush()
 	current = &decompressedImage
