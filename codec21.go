@@ -35,7 +35,7 @@ const RawMarker = uint8(0x0F)
 
 var nomatch = errors.New("nomatch")
 
-func Compress20(out *bufio.Writer, current *Image, reference *Image) error {
+func Compress21(out *bufio.Writer, current *Image, reference *Image) error {
 	bounds := (*current).Bounds()
 	cursor := image.Point{bounds.Min.X, bounds.Min.Y}
 
@@ -78,7 +78,7 @@ func (p *Pixel) Short() ShortPixel {
 }
 
 func (p *Pixel) LooksLike(q *Pixel) bool {
-	return p.Diff(q) < 4*3
+	return p.Diff(q) < 13*3
 }
 
 func (p *Pixel) Diff(q *Pixel) uint32 {

@@ -26,6 +26,7 @@ func testCODEC21Clean(t *testing.T) {
 	_ = os.Mkdir("./testpath/testout", 0700)
 }
 
+// Runs all test modules. Ratio can be verified comparing each c21 file to testout_raw.c21
 func TestCODEC21Modules(t *testing.T) {
 	testCODEC21Clean(t)
 	TestCODEC21Raw(t)
@@ -55,7 +56,7 @@ func TestCODEC21EndToEnd(t *testing.T) {
 			wr := bufio.NewWriter(fil)
 
 			current := NewImage(img)
-			err := Compress20(wr, &current, referencePtr)
+			err := Compress21(wr, &current, referencePtr)
 
 			err = wr.Flush()
 			if err != nil {
