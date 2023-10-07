@@ -23,6 +23,8 @@ Such remote applications allow a star schema of keyboards, touch devices, and pe
 
 Imagine a train station terminal buying tickets typing on your phone but seeing the invoice on the screen on the wall.
 
+![usage](assets/codec21.png)
+
 # Leading features
 
 Codec21 leverages a dedicated channel providing predictable bandwidth. This will be possible in ten to twenty years with fiber optics sized by the local population density.
