@@ -208,7 +208,7 @@ The length of the audio specifies the length of the frame.
 
 Simplicity still allows use for archival. The timing of the audio channel should be
 sufficient for this purpose.
-Any buffering causes quality degradation and it increases the time and cost
+Any buffering causes quality degradation, and it increases the time and cost
 of engineering support.
 This is an issue for small scale applications.
 We propose uncompressed audio to reduce any decompression delays to zero.
@@ -354,7 +354,7 @@ is gradually updated with progressive updates that are swapped in later.
  - Suggested audio sample buffer size for low latency chat: 512 byte (1.5ms@1000Hz@100mbps).
  - The invisible palette of pixels may come anytime. This is a variable length array of 24
 bit pixels. The size is up to 256 pixels long like GIF but 2, 4, and 16 pixel palettes are encouraged based on our experimentation.
- - No resolution is provided by the encoder since headers are non existent to reduce engineering cost.
+ - No resolution is provided by the encoder since headers are non-existent to reduce engineering cost.
  - The client can opt for an optimal resolution to be sent in the URL or filename:
 https://c21.remoting.example.com/600x800 file://stream600x800.c21
  - Each pixel should represent a 1/60 degree viewing angle to maintain text quality.
@@ -390,7 +390,7 @@ These are the section primitives of the codec.
 All local cache is discarded. Session reset has no actual codec command.
    It is defined by the carrier. 
    We start a new black frame of RGB (0, 0, 0) and silent audio. A server may send a
-reference frame (traditionally called an I frame) by eliminating references to the
+reference frame (a.k.a. I frame) by eliminating references to the
 previous frames and overwriting all pixels.
  - Frame: A frame is a physical image and the matching audio sample.
  When we start the frame it resets the cursor to the (0,0)
@@ -531,7 +531,7 @@ Multiple chunks may be used for bigger arrays helping with parallelism.
 
    Bits 7-6 with marker 04 may actually be too dark and rough.
    It can be replaced with IDX(02) marker and four bright pixels.
-   Repetition and previous pixel reference can be simluated with the LIN marker.
+   Repetition and previous pixel reference can be simulated with the LIN marker.
 
    Example fine adjustments of 12 pixels of 24 bits, 3 bytes: `NUM(06) DIF(05) 08 06 05`
 
@@ -586,7 +586,7 @@ Frame start: |--EOF--|
    Bandwidth is not an issue. We optimize for low compute and memory use.
    Entropy encoding standards like deflate shorten some code words but lengthen others.
    Individual implementations may apply it in any case, since we saw overall effects of the quality comparable to and the size better than PNG.
- - Subsampling of the image as 2, 4, 8, 16 pixel bursts similar to wavelet transformations may give a quick latency enhancement for large frame updates (I frames)
+ - Subsampling of the image as 2, 4, 8, 16 pixel bursts similar to wavelet transformations may give a quick latency enhancement for large frame updates (a.k.a. I frame)
    **Subsampling** can be added separately on the input.
  - Security like TLS is not discussed. It may add additional latency, so it may be omitted for public broadcasting.
    TLS may be replaced by **signing algorithms** that disregard privacy but ensure integrity.
