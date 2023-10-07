@@ -592,7 +592,7 @@ Frame start: |--EOF--|
    TLS may be replaced by **signing algorithms** that disregard privacy but ensure integrity.
  - A single test image is used, but it is sufficient, since it contains all regular patterns simulating more complicated tests.
    This reduces **test engineering overhead**. This is the power of the simple design, that we can assess the test set required as a function of the codec code complexity.
- - The core codec code should be kept around **1000 lines** that can be maintained by **1/5 developer year** of an experienced engineer. (McEnery, 2020)
+ - The core codec code should be kept around **1000 lines** that can be maintained using 20% time of an experienced engineer. (McEnery, 2020)
    It is a good idea not to have code that is not maintained to keep stability and integrity.
  - We choose the local compression algorithms based on (1) accuracy, (2) whether it meets the 20% compression goal,
    (3) whether it compresses better, (4) whether it spans across bigger blocks.
