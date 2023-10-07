@@ -29,7 +29,7 @@ Codec21 leverages a dedicated channel providing predictable bandwidth. This will
 
 Codec21 is designed to reflect the viewing angle in bandwidth requirements aligning well with population density requiring just as much dedicated bandwidth as needed.
 
-It downloads just the right amount of data of the viewing angle presenting at once. Compare this to traditional internet browsers with many images and asynchrous scattered updates.
+It downloads just the right amount of data of the viewing angle presenting at once. Compare this to traditional internet browsers with many images and asynchronous scattered updates.
 
 It attaches the presentation to the audio omitting timestamps.
 
@@ -75,7 +75,7 @@ This is especially true to initial project engineering and management.
 
 Office applications are the suggested usage market with rare but quick updates.
 A typical usage is paging on the results of a budget query.
-Remoting provides the **highest level of integrity** with easy verification.
+Remote desktop provides the **highest level of integrity** with easy verification.
 
 It compresses the signal and does not anticipate patterns making the image sharper.
 It retains sharp changes and lines better than H.264 or JPEG making it better for office use.
@@ -251,7 +251,7 @@ This eliminates artifacts of low bandwidth issues of H.264.
 overhead. It is just a portion of the entire frame and decompressed transmission
 ensures minimal delay especially for interactive applications.
 Audio compression is discouraged.
-Lossful compression of audio is a sign of inadequate input quality with few
+Compression of audio with information loss is a sign of inadequate input quality with few
 frequency components or a sampling rate too low. Loss in compression causes
 noticeable quality degradation, a key differentiator for our user base.
 
@@ -265,7 +265,7 @@ Time of sample				5	us
 16 ms buffer size (60Hz)		6700	bytes 16ms transfers in 0.5ms
 Audio bandwidth				3.3	Mbps
 Audio/Video bandwidth			22	Mbps
-Audio badwidth ratio			15	%
+Audio bandwidth ratio			15	%
 ```
 
 The audio part is 200kHz 16-bit sampled Pulse Code Modulated data.
@@ -294,7 +294,7 @@ of the last audio block and swap the frame, starting the new audio block.
 Any subsequent progressive video updates come while
 audio is already running.
 
-There is no fixed syncronization rate.
+There is no fixed synchronization rate.
 We get an immediate reaction to a button press on a stale image submitting a
 small portion of image and sound together making the effective frame rate 2x or even
 4x of the nominal 15Hz, 30Hz or 60Hz to real 60Hz, 120Hz or 240Hz.
@@ -323,7 +323,7 @@ length of the frame. It does not have a negotiation header to specify resolution
 frame rate. This reduces support and testing costs.
 
 Small changes may be sent immediately if sufficient bandwidth is given with no delay.
-This is very usefult to support typing in real time.
+This is very useful to support typing in real time.
 
 We suggest using low pass filtering on video for convenience and compression on the encoder side.
 Also, we suggest no filtering on audio to support a diverse user base including high frequency voice.
@@ -579,7 +579,7 @@ Frame start: |--EOF--|
  - Traditional **JPEG and MPEG rely on waveforms and block correlations** requiring higher memory use, compute and power use. 
  - **Codec21 has a linear O(n) encoding** algorithm for palette lookup, linear interpolation, and quantization making it efficient for embedded applications
  - An encoder specific noise threshold can avoid stripes due to the local palette with minimal overhead.
- - We **do not use deflate** or any other enthropy encoding. The reason is simply to optimize for low latency.
+ - We **do not use deflate** or any other entropy encoding. The reason is simply to optimize for low latency.
    Deflate requires excess memory and excess compute in exchange for about additional 50% compression ratio.
    This may be acceptable for certain implementations, but it may prevent the use of microcontrollers, so we decided against it.
  - Another reason not using deflate is that we have a **fixed bandwidth saturation requirement** of 25 Mbps of 100 Mbps
@@ -588,7 +588,7 @@ Frame start: |--EOF--|
    Individual implementations may apply it in any case, since we saw overall effects of the quality comparable to and the size better than PNG.
  - Subsampling of the image as 2, 4, 8, 16 pixel bursts similar to wavelet transformations may give a quick latency enhancement for large frame updates (I frames)
    **Subsampling** can be added separately on the input.
- - Security like TLS is not discussed. It may add addtitional latency, so it may be omitted for public broadcasting.
+ - Security like TLS is not discussed. It may add additional latency, so it may be omitted for public broadcasting.
    TLS may be replaced by **signing algorithms** that disregard privacy but ensure integrity.
  - A single test image is used, but it is sufficient, since it contains all regular patterns simulating more complicated tests.
    This reduces **test engineering overhead**. This is the power of the simple design, that we can assess the test set required as a function of the codec code complexity.
