@@ -17,7 +17,7 @@ It leverages the hotspots in time, color spectrum, smooth edges using differenti
 
 The target customer requires a low latency audio, video, and graphics codec for remote applications.
 
-The target compression ratio is about 20-21% of PNG of moving, and 1% of still images. This allows a better response time to compete, when the physical bandwidth limits are reached in a market.
+The target compression ratio is about 20-21% like PNG of moving, and 1% of still images. This allows a better response time to compete, when the physical bandwidth limits are reached in a market.
 
 Such remote applications allow a star schema of keyboards, touch devices, and personal devices for input, and a shared output screen.
 
@@ -57,7 +57,8 @@ It is simple, and it reduces the risks of legal, hardware and software security 
 ### Fix ratio objective
 
 It is supposed to compress the original image to one fifth or less.
-The number 20 in the name reflects the **20% nominal compressed stream bitrate** compared to the raw pixels.
+The number 21 in the name reflects the **21% nominal compressed stream bitrate** compared to the raw pixels.
+Patenting also started in years '20 and '21.
 The solution keeps the compression ratio stable.
 It is capped at this level by the encoder.
 
