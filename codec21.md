@@ -1,4 +1,4 @@
-# CODEC21 Environment Friendly Low Latency Media Codec (preliminary information)
+# CODEC21 Environment Friendly Low Latency Remote Screens
 
 Patented as US 11,638,040 B2. Patent and trademark rights reserved.
 
@@ -9,19 +9,47 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 
 ## Abstract
 
-This is a low latency audio, video, and graphics codec for remote applications.
-It leverages a dedicated channel providing predictable bandwidth.
+The codec21 (C21) belongs to the low profile, low latency family of codecs inspired by JPEG-XS.
+
+The main difference is it's very low complexity and engineering cost.
+
+It leverages the hotspots in time, color spectrum, smooth edges using differential & progressive encoding, lookup tables, linear approximation respectively. Audio is transmitted as is leveraging a portion of video bandwidth.
+
+The target customer requires a low latency audio, video, and graphics codec for remote applications.
+
+The target compression ratio is about 20-21% of PNG of moving, and 1% of still images. This allows a better response time to compete, when the physical bandwidth limits are reached in a market.
+
+Such remote applications allow a star schema of keyboards, touch devices, and personal devices for input, and a shared output screen.
+
+Imagine a train station terminal buying tickets typing on your phone but seeing the invoice on the screen on the wall.
+
+# Leading features
+
+Codec21 leverages a dedicated channel providing predictable bandwidth. This will be possible in ten to twenty years with fiber optics sized by the local population density.
+
+Codec21 is designed to reflect the viewing angle in bandwidth requirements aligning well with population density requiring just as much dedicated bandwidth as needed.
+
+It downloads just the right amount of data of the viewing angle presenting at once. Compare this to traditional internet browsers with many images and asynchrous scattered updates.
+
 It attaches the presentation to the audio omitting timestamps.
 
-It is designed to compete with the patent packages of H.264, H.265.
+It is designed to compete with the patent packages of H.264, H.265, JPEG-XS.
+
+It lowers costs and risks with competition allowing better growth for the entire graphics industry. Investors and developers are keen on initial investment, if there are options.
 
 It requires a simple implementation without session or frame headers to minimize support and testing costs.
-It is designed to run on microcontrollers without the requirement of floating point instructions.
+
+It is designed to run on microcontrollers without the requirement of floating point instructions or a large on-chip cache.
+
+What allows this is treating the viewing angle and population density as the predictor of bandwidth investments required.
 
 It is designed to have minimal interdependence between parts of the stream, so that encoding and decoding can be highly parallel.
 It is designed with low complexity and power use making it ideal for green applications.
 
-All these make it suitable for scalable small businesses to use with remote desktops, screen connectors (USB3 over HDMI), local broadcast, embedded screens, remote gaming, remote driving, internet browsing.
+All these make it suitable for scalable small businesses to use with TCP/IP remote desktops, screen connectors (USB3 over HDMI), local broadcast, embedded screens, remote gaming, remote driving, internet browsing.
+
+Few hundred lines of reference implementation allows lightning fast security code reviews compared to the browsers available today with millions of lines of JavaScript, CSS, numerous media formats, and HTML.
+
 It is simple, and it reduces the risks of legal, hardware and software security problems and expenses.
 
 ## Technical details
