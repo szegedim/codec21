@@ -36,6 +36,6 @@ func main() {
 	})
 	for value, x := range list {
 		x.value = value
-		fmt.Printf("%2d %08b\n", x.value, x.code)
+		fmt.Printf("%03d %08b\n", x.value, x.code)
 	}
 }
