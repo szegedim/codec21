@@ -19,7 +19,7 @@ The target customer requires a low latency audio, video, and graphics codec for 
 
 The target compression ratio is about 20-21% like PNG of moving, and 1% of still images. This allows a better response time to compete, when the physical bandwidth limits are reached in a market.
 
-It also allows detaching the stream from the screen 60Hz, 100Hz screen clocks. It allows even better response type for typing triggering the vertical sync for the display.
+It also allows detaching the stream from the 60Hz, 100Hz screen clocks. It allows even better response type for typing triggering the vertical sync for the display.
 
 Such remote applications allow a star schema of keyboards, touch devices, and personal devices for input, and a shared output screen.
 
