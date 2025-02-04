@@ -30,7 +30,7 @@ uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
 }
 
 // Function to find most frequent values in an array
-void find_most_frequent(const Vector3D* data, size_t length,
+int find_most_frequent(const Vector3D* data, size_t length,
                         Vector3D* lut, size_t lut_size) {
     // Simple frequency counting
     typedef struct {
@@ -76,9 +76,12 @@ void find_most_frequent(const Vector3D* data, size_t length,
     }
 
     // Copy top N values to LUT
+    int count = 0;
     for (size_t i = 0; i < lut_size && i < unique_count; i++) {
         lut[i] = freq[i].value;
+        count += freq[i].count;
     }
+    return count;
 }
 
 // Function to check if points fit a linear line within tolerance
@@ -100,6 +103,20 @@ bool is_linear_fit(Vector3D points[], int count, int tolerance) {
         }
     }
     return true;
+}
+
+// Function to check if block has large differences
+bool has_lut_differences(const Vector3D* input, const Vector3D* reference, 
+                         size_t length) {
+    for (size_t i = 0; i < length; i++) {
+        int dx = abs(input[i].x - reference[i].x);
+        int dy = abs(input[i].y - reference[i].y);
+        int dz = abs(input[i].z - reference[i].z);
+        if (dx > 32 || dy > 32 || dz > 32) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Function to check if block has large differences
@@ -139,6 +156,24 @@ DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_
         }
     }
     
+    return has_medium ? DIFF_MEDIUM : DIFF_SMALL;
+}
+
+DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size_t length) {
+    bool has_medium = false;
+    
+    for (size_t i = 0; i < length; i++) {
+        int dx = (input[i].x ^ reference[i].x);
+        int dy = (input[i].y ^ reference[i].y);
+        int dz = (input[i].z ^ reference[i].z);
+        
+        if ((dx & 0xf0) | (dy & 0xf0) | (dz & 0xf0)) {
+            return DIFF_LARGE;
+        }
+        if ((dx & 0xfc) | (dy & 0xfc) | (dz & 0xfc)) {
+            has_medium = true;
+        }
+    }
     return has_medium ? DIFF_MEDIUM : DIFF_SMALL;
 }
 
@@ -185,14 +220,16 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
     size_t lut_size = 25;
     
     if (input_pos + lut_size <= input_size) {
-        if (has_large_differences(&input[input_pos], &reference[input_pos], lut_size)) {
-            // Create LUT with 4 most frequent values (changed from 16)
+        if (has_lut_differences(&input[input_pos], &reference[input_pos], lut_size)) {
+            // Create LUT with 4 most frequent values
             Vector3D lut[4];
-            find_most_frequent(&input[input_pos], lut_size, lut, 4);
-    
+            if (find_most_frequent(&input[input_pos], lut_size, lut, 4) != lut_size) {
+                return output_pos;
+            }
+
             output[output_pos++] = 0xAA;  // LUT block marker
             output[output_pos++] = lut_size;    // Block length
-    
+
             memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
             output_pos += sizeof(Vector3D) * 4;
     
@@ -242,33 +279,31 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     size_t output_pos = 0;
     size_t input_pos = 0;
     
+    size_t fine_length = input_size - input_pos;
+    if (fine_length > 25) {
+        fine_length = 25;
+    }
+
     if (input_pos < input_size) {
-        size_t fine_length = input_size - input_pos;
-        if (fine_length > 25) {
-            fine_length = 25;
-        }
-        DiffRange range = get_diff_range(&input[input_pos], 
+        DiffRange range = get_diff_masked(&input[input_pos], 
                                        &reference[input_pos], fine_length);
         
         if (range == DIFF_MEDIUM) {
+
             // Encode blocks with differences 4-15 (2-bit encoding)
             output[output_pos++] = 0xCC;  // BIT2 marker
             output[output_pos++] = fine_length;    // Block length
-            
+
             uint8_t bit_buffer = 0;
             int bit_pos = 0;
             
             for (size_t i = 0; i < fine_length; i++) {
-                Vector3D diff;
-                diff.x = input[input_pos + i].x - reference[input_pos + i].x;
-                diff.y = input[input_pos + i].y - reference[input_pos + i].y;
-                diff.z = input[input_pos + i].z - reference[input_pos + i].z;
-                
+
                 // Pack bits 2 and 3 of each dimension
-                uint8_t x_bits = (diff.x >> 2) & 0x03;
-                uint8_t y_bits = (diff.y >> 2) & 0x03;
-                uint8_t z_bits = (diff.z >> 2) & 0x03;
-                
+                uint8_t x_bits = (input[input_pos + i].x >> 2) & 0x03;
+                uint8_t y_bits = (input[input_pos + i].y >> 2) & 0x03;
+                uint8_t z_bits = (input[input_pos + i].z >> 2) & 0x03;
+
                 bit_buffer |= (x_bits << bit_pos);
                 bit_pos += 2;
                 if (bit_pos >= 8) {
@@ -308,15 +343,11 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
             int bit_pos = 0;
             
             for (size_t i = 0; i < fine_length; i++) {
-                Vector3D diff;
-                diff.x = input[input_pos + i].x - reference[input_pos + i].x;
-                diff.y = input[input_pos + i].y - reference[input_pos + i].y;
-                diff.z = input[input_pos + i].z - reference[input_pos + i].z;
                 
                 // Pack bits 0 and 1 of each dimension
-                uint8_t x_bits = diff.x & 0x03;
-                uint8_t y_bits = diff.y & 0x03;
-                uint8_t z_bits = diff.z & 0x03;
+                uint8_t x_bits = input[input_pos + i].x & 0x03;
+                uint8_t y_bits = input[input_pos + i].y & 0x03;
+                uint8_t z_bits = input[input_pos + i].z & 0x03;
                 
                 bit_buffer |= (x_bits << bit_pos);
                 bit_pos += 2;
@@ -350,29 +381,20 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
     }
     
-    int length = input_size - input_pos;
     // If we're not returning after processing the block
     output[output_pos++] = 0xEE;  // New marker for remaining data
-    output[output_pos++] = length;    // Block length
+    output[output_pos++] = fine_length;    // Block length
     
-    for (size_t i = 0; i < length; i += 2) {
-        Vector3D diff1, diff2;
-        diff1.x = input[input_pos + i].x - reference[input_pos + i].x;
-        diff1.y = input[input_pos + i].y - reference[input_pos + i].y;
-        diff1.z = input[input_pos + i].z - reference[input_pos + i].z;
+    for (size_t i = 0; i < fine_length; i += 2) {
 
-        uint8_t x1 = (diff1.x >> 4) & 0x0F;
-        uint8_t y1 = (diff1.y >> 4) & 0x0F;
-        uint8_t z1 = (diff1.z >> 4) & 0x0F;
+        uint8_t x1 = (input[input_pos + i].x >> 4) & 0x0F;
+        uint8_t y1 = (input[input_pos + i].y >> 4) & 0x0F;
+        uint8_t z1 = (input[input_pos + i].z >> 4) & 0x0F;
 
-        if (i + 1 < length) {
-            diff2.x = input[input_pos + i + 1].x - reference[input_pos + i + 1].x;
-            diff2.y = input[input_pos + i + 1].y - reference[input_pos + i + 1].y;
-            diff2.z = input[input_pos + i + 1].z - reference[input_pos + i + 1].z;
-
-            uint8_t x2 = (diff2.x >> 4) & 0x0F;
-            uint8_t y2 = (diff2.y >> 4) & 0x0F;
-            uint8_t z2 = (diff2.z >> 4) & 0x0F;
+        if (i + 1 < fine_length) {
+            uint8_t x2 = (input[input_pos + i + 1].x >> 4) & 0x0F;
+            uint8_t y2 = (input[input_pos + i + 1].y >> 4) & 0x0F;
+            uint8_t z2 = (input[input_pos + i + 1].z >> 4) & 0x0F;
 
             output[output_pos++] = (x1 << 4) | x2;
             output[output_pos++] = (y1 << 4) | y2;
@@ -389,11 +411,16 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
 
 // Function to encode zero blocks and linear blocks
 size_t encode_block(const Vector3D* input, const Vector3D* reference, 
-                   size_t input_size, uint8_t* output) {
+                   size_t input_size, uint8_t* output, size_t output_size) {
     size_t output_pos = 0;
     size_t input_pos = 0;
+    size_t max_block_length = 100;
     
     while (input_pos < input_size) {
+        if (output_pos + max_block_length >= output_size) {
+            printf("Overflow\n");
+            break;
+        }
         // Check for zero difference block
         size_t zero_length = 0;
         while (zero_length < 200 && input_pos + zero_length < input_size && 
@@ -452,6 +479,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
     while (input_pos < input_size) {
         uint8_t block_type = input[input_pos++];
         uint8_t length = input[input_pos++];
+        //printf("%x\n", block_type);
         
         switch (block_type) {
             case 0x00: {  // Skip block
@@ -516,9 +544,9 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     uint8_t y1_upper = (y_packed >> 4) & 0x0F;
                     uint8_t z1_upper = (z_packed >> 4) & 0x0F;
         
-                    output[output_pos].x = (x1_upper << 4) | (reference[output_pos].x & 0x0F);
-                    output[output_pos].y = (y1_upper << 4) | (reference[output_pos].y & 0x0F);
-                    output[output_pos].z = (z1_upper << 4) | (reference[output_pos].z & 0x0F);
+                    output[output_pos].x = (x1_upper << 4);
+                    output[output_pos].y = (y1_upper << 4);
+                    output[output_pos].z = (z1_upper << 4);
                     output_pos++;
         
                     if (i + 1 < block_length) {
@@ -526,9 +554,9 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                         uint8_t y2_upper = y_packed & 0x0F;
                         uint8_t z2_upper = z_packed & 0x0F;
             
-                        output[output_pos].x = (x2_upper << 4) | (reference[output_pos].x & 0x0F);
-                        output[output_pos].y = (y2_upper << 4) | (reference[output_pos].y & 0x0F);
-                        output[output_pos].z = (z2_upper << 4) | (reference[output_pos].z & 0x0F);
+                        output[output_pos].x = (x2_upper << 4);
+                        output[output_pos].y = (y2_upper << 4);
+                        output[output_pos].z = (z2_upper << 4);
                         output_pos++;
                     }
                 }
@@ -564,9 +592,9 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     bits_remaining -= 2;
                     
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = reference[output_pos].x + x_bits;
-                    output[output_pos].y = reference[output_pos].y + y_bits;
-                    output[output_pos].z = reference[output_pos].z + z_bits;
+                    output[output_pos].x = (reference[output_pos].x & 0xf0) + x_bits;
+                    output[output_pos].y = (reference[output_pos].y & 0xf0) + y_bits;
+                    output[output_pos].z = (reference[output_pos].z & 0xf0) + z_bits;
                     output_pos++;
                 }
                 break;
@@ -605,9 +633,9 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     }
                     
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = reference[output_pos].x + x_bits;
-                    output[output_pos].y = reference[output_pos].y + y_bits;
-                    output[output_pos].z = reference[output_pos].z + z_bits;
+                    output[output_pos].x = (reference[output_pos].x & 0xfc) + x_bits;
+                    output[output_pos].y = (reference[output_pos].y & 0xfc) + y_bits;
+                    output[output_pos].z = (reference[output_pos].z & 0xfc) + z_bits;
                     output_pos++;
                 }
                 break;
@@ -648,6 +676,17 @@ void calculate_errors(const size_t num, Vector3D* input, Vector3D* decompressed)
     printf("X dimension: %.6f\n", avg_diff_x);
     printf("Y dimension: %.6f\n", avg_diff_y);
     printf("Z dimension: %.6f\n", avg_diff_z);
+}
+
+void clear(Vector3D* buffer, size_t num_vectors) {
+    for (size_t i = 0; i < num_vectors; i++) {
+        buffer[i].x = 0;
+        buffer[i].y = 0;
+        buffer[i].z = 0;
+    }
+}
+
+void unit_test_0(Vector3D* buffer, size_t num_vectors) {
 }
 
 void unit_test_1(Vector3D* buffer, size_t num_vectors) {
@@ -737,24 +776,53 @@ int main(int argc, char *argv[]) {
     size_t max_compressed_size = NUM_VECTORS * sizeof(Vector3D) * 2;
     uint8_t* compressed = malloc(max_compressed_size);
     
-    unit_test_3(input, NUM_VECTORS);
-    for (size_t i=0; i < 3; i++) {
-    
-        size_t compressed_size = 0;
-        compressed_size += encode_block(input, reference, NUM_VECTORS, compressed + compressed_size);
+    void (*tests[])(Vector3D* buffer, size_t num_vectors) = {
+        unit_test_0,
+        unit_test_1,
+        unit_test_2,
+        unit_test_3,
+        unit_test_4,
+        unit_test_5
+    };
+     
+    for (size_t t=0; t<sizeof(tests) / sizeof(tests[0]); t++) {
+        clear(reference, NUM_VECTORS);
+        clear(decompressed, NUM_VECTORS);
+        tests[t](input, NUM_VECTORS);
+        for (size_t i=0; i < 5; i++) {
+
+            size_t compressed_size = 0;
+            compressed_size += encode_block(input, reference, NUM_VECTORS, compressed + compressed_size, max_compressed_size - compressed_size);
         
-        size_t decompressed_vectors = decode_blocks(compressed, compressed_size, 
-                                                  decompressed, reference);
+            size_t decompressed_vectors = decode_blocks(compressed, compressed_size, 
+                                                      decompressed, reference);
+    /*
+            for (size_t j=100; j < 350; j++) {
+                printf("GG %2x %2x %2x, ", input[j].x, input[j].y, input[j].z);
+            }
+            printf("\n");
+            for (size_t j=100; j < 350; j++) {
+                printf("HH %2x %2x %2x, ", reference[j].x, reference[j].y, reference[j].z);
+            }
+            printf("\n");
+            for (size_t j=100; j < 350; j++) {
+                printf("JJ %2x %2x %2x, ", decompressed[j].x, decompressed[j].y, decompressed[j].z);
+            }
+            printf("\n");
+    */
 
-        memcpy(reference, decompressed, uncompressed_size);
+            memcpy(reference, decompressed, uncompressed_size);
 
-        printf("\nProgressive frame: %d\nCompression ratio: %.6f/%.6f = %.6f%%\n",
-               i,
-               (double)compressed_size, (double)uncompressed_size, 
-               100.0*((double)compressed_size) / (double)uncompressed_size);
+            printf("\nProgressive frame: %d\nCompression ratio: %.6f/%.6f = %.6f%%\n",
+                   i,
+                   (double)compressed_size, (double)uncompressed_size, 
+                   100.0*((double)compressed_size) / (double)uncompressed_size);
     
-        calculate_errors(NUM_VECTORS, input, decompressed);
-    } 
+            calculate_errors(NUM_VECTORS, input, decompressed);
+        } 
+    }
+
+
     free(input);
     free(reference);
     free(decompressed);
