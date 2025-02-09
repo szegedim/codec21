@@ -176,28 +176,28 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
         uint8_t mz = (input[i].z ^ reference[i].z);
         
         if ((mx & 0xc0) | (my & 0xc0) | (mz & 0xc0)) {
-            if (dx >= 0x40) {
+            if (dx >= 0x40 || mx == dx) {
                 has_large = true;
             } else {
                 return DIFF_CARRY;
             }
         }
         if ((mx & 0x30) | (my & 0x30) | (mz & 0x30)) {
-            if (dx >= 0x10) {
+            if (dx >= 0x10 || mx == dx) {
                 has_significant = true;
             } else {
                 return DIFF_CARRY;
             }
         }
         if ((mx & 0x0c) | (my & 0x0c) | (mz & 0x0c)) {
-            if (dx >= 0x04) {
+            if (dx >= 0x04 || mx == dx) {
                 has_medium = true;
             } else {
                 return DIFF_CARRY;
             }
         }
         if ((mx & 0x03) | (my & 0x03) | (mz & 0x03)) {
-            if (dx >= 0x01) {
+            if (dx >= 0x01 || mx == dx) {
                 has_small = true;
             } else {
                 return DIFF_CARRY;
@@ -216,7 +216,8 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
     if (has_small) {
         return DIFF_SMALL;
     }
-    return DIFF_CARRY;
+    // TODO carry?
+    return DIFF_SMALL;
 }
 
 const size_t linear_length = 20;
@@ -239,7 +240,6 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
 
 
         if (range == DIFF_LARGE && is_linear_fit(check_points, 5, 2)) {
-            printf("LIN\n");
             output[output_pos++] = 0x55;  // Linear block marker
             const int length = linear_length;
             output[output_pos++] = length;    // Fixed length
@@ -522,9 +522,9 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     for (size_t i = 0; i < fine_length; i++) {
                 
         // Pack bits 0 and 1 of each dimension
-        uint8_t x_bits = (input[input_pos + i].x - reference[input_pos + i].x) & 0x03;
-        uint8_t y_bits = (input[input_pos + i].y - reference[input_pos + i].y) & 0x03;
-        uint8_t z_bits = (input[input_pos + i].z - reference[input_pos + i].z) & 0x03;
+        uint8_t x_bits = ((int)input[input_pos + i].x - (int)reference[input_pos + i].x) & 0x03;
+        uint8_t y_bits = ((int)input[input_pos + i].y - (int)reference[input_pos + i].y) & 0x03;
+        uint8_t z_bits = ((int)input[input_pos + i].z - (int)reference[input_pos + i].z) & 0x03;
                 
         bit_buffer |= (x_bits << bit_pos);
         bit_pos += 2;
