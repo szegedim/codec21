@@ -105,7 +105,7 @@ bool is_linear_fit(Vector3D points[], int count, int tolerance) {
     return true;
 }
 
-// Function to check if block has large differences
+// Function to check if block has differences that may be solved by a look up table
 bool has_lut_differences(const Vector3D* input, const Vector3D* reference, 
                          size_t length) {
     for (size_t i = 0; i < length; i++) {
