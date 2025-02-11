@@ -30,6 +30,17 @@ uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
     return dx*dx + dy*dy + dz*dz;
 }
 
+typedef enum {
+    VERB_SKIP = 0x00,
+    VERB_LINEAR = 0x55,
+    VERB_LOOKUP = 0xAA,
+    VERB_BIT1AND0 = 0xBB,
+    VERB_BIT3AND2 = 0xCC,
+    VERB_BIT5AND4 = 0xDD,
+    VERB_BIT7AND6 = 0xEE,
+    VERB_REMAINDER = 0xFF,
+} VerbList;
+
 // Function to find most frequent values in an array for lookup tables
 int find_most_frequent(const Vector3D* data, size_t length,
                         Vector3D* lut, size_t lut_size) {
@@ -151,6 +162,7 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
     bool has_medium = false;
     bool has_significant = false;
     bool has_large = false;
+    bool has_remainder = false;
     
     for (size_t i = 0; i < length; i++) {
         int dx = abs(input[i].x - reference[i].x);
@@ -164,28 +176,28 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
             if (dx >= 0x40 || mx == dx) {
                 has_large = true;
             } else {
-                return DIFF_REMAINDER;
+                has_remainder = true;
             }
         }
         if ((mx & 0x30) | (my & 0x30) | (mz & 0x30)) {
             if (dx >= 0x10 || mx == dx) {
                 has_significant = true;
             } else {
-                return DIFF_REMAINDER;
+                has_remainder = true;
             }
         }
         if ((mx & 0x0c) | (my & 0x0c) | (mz & 0x0c)) {
             if (dx >= 0x04 || mx == dx) {
                 has_medium = true;
             } else {
-                return DIFF_REMAINDER;
+                has_remainder = true;
             }
         }
         if ((mx & 0x03) | (my & 0x03) | (mz & 0x03)) {
             if (dx >= 0x01 || mx == dx) {
                 has_small = true;
             } else {
-                return DIFF_REMAINDER;
+                has_remainder = true;
             }   
         }
     }
@@ -201,8 +213,7 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
     if (has_small) {
         return DIFF_SMALL;
     }
-    // TODO This should never happen
-    return DIFF_SMALL;
+    return DIFF_REMAINDER;
 }
 
 const size_t linear_length = 20;
@@ -225,7 +236,7 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
 
 
         if (range == DIFF_LARGE && is_linear_fit(check_points, 5, 2)) {
-            output[output_pos++] = 0x55;  // Linear block marker
+            output[output_pos++] = VERB_LINEAR;  // Linear block marker
             const int length = linear_length;
             output[output_pos++] = length;    // Fixed length
             memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
@@ -257,7 +268,7 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                 return output_pos;
             }
 
-            output[output_pos++] = 0xAA;  // LUT block marker
+            output[output_pos++] = VERB_LOOKUP;  // LUT block marker
             output[output_pos++] = lut_size;    // Block length
 
             memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
@@ -320,7 +331,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
 
         if (range == DIFF_LARGE) {
             // If we're not returning after processing the block
-            output[output_pos++] = 0xEE;  // New marker for remaining data
+            output[output_pos++] = VERB_BIT7AND6;  // New marker for remaining data
             output[output_pos++] = fine_length;    // Block length
     
             uint8_t bit_buffer = 0;
@@ -361,7 +372,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
             input_pos += fine_length;
             return output_pos;    
         } else if (range == DIFF_SIGNIFICANT) {
-            output[output_pos++] = 0xDD;  // marker
+            output[output_pos++] = VERB_BIT5AND4;  // marker
             output[output_pos++] = fine_length;    // Block length
 
             uint8_t bit_buffer = 0;
@@ -406,7 +417,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
         else if (range == DIFF_MEDIUM) {
             // Encode blocks with differences 4-15 (2-bit encoding)
-            output[output_pos++] = 0xCC;  // BIT2 marker
+            output[output_pos++] = VERB_BIT3AND2;  // BIT2 marker
             output[output_pos++] = fine_length;    // Block length
 
             uint8_t bit_buffer = 0;
@@ -451,7 +462,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
         else if (range == DIFF_SMALL) {
             // Encode blocks with differences < 4 (1-bit encoding)
-            output[output_pos++] = 0xBB;  // BIT1 marker
+            output[output_pos++] = VERB_BIT1AND0;  // BIT1 marker
             output[output_pos++] = fine_length;    // Block length
             
             uint8_t bit_buffer = 0;
@@ -497,7 +508,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     }
 
     // Remainder propagated to more significant bits
-    output[output_pos++] = 0xFF;  // marker
+    output[output_pos++] = VERB_REMAINDER;  // marker
     output[output_pos++] = fine_length;    // Block length
             
     uint8_t bit_buffer = 0;
@@ -562,7 +573,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
         
         if (zero_length > 0) {
-            output[output_pos++] = 0x00;
+            output[output_pos++] = VERB_SKIP;
             output[output_pos++] = zero_length;
             input_pos += zero_length;
             continue;
@@ -612,7 +623,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
         uint8_t length = input[input_pos++];
         
         switch (block_type) {
-            case 0x00: {  // Skip block
+            case VERB_SKIP: {  // Skip block
                 // Copy directly from reference
                 memcpy(&output[output_pos], &reference[output_pos], 
                        length * sizeof(Vector3D));
@@ -620,7 +631,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 break;
             }
             
-            case 0x55: {  // Linear block
+            case VERB_LINEAR: {  // Linear block
                 Vector3D start, end;
                 memcpy(&start, &input[input_pos], sizeof(Vector3D));
                 input_pos += sizeof(Vector3D);
@@ -637,7 +648,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 output_pos += length;
                 break;
             }
-            case 0xAA: {  // LUT block
+            case VERB_LOOKUP: {  // LUT block
                 Vector3D lut[4];
                 memcpy(lut, &input[input_pos], sizeof(Vector3D) * 4);
                 input_pos += sizeof(Vector3D) * 4;
@@ -661,7 +672,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 }
                 break;
             }
-            case 0xEE: {  // Additional bits 7-6 block
+            case VERB_BIT7AND6: {  // Additional bits 7-6 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
@@ -697,7 +708,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 }
                 break;
             }
-            case 0xDD: {  // Additional bits 5-4 block
+            case VERB_BIT5AND4: {  // Additional bits 5-4 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
@@ -732,7 +743,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 }
                 break;
             }
-            case 0xCC: {  // Additional bits 3-2 block
+            case VERB_BIT3AND2: {  // Additional bits 3-2 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
@@ -767,7 +778,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 }
                 break;
             }
-            case 0xBB: {  // Additional bits 1-0 block
+            case VERB_BIT1AND0: {  // Additional bits 1-0 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
@@ -806,7 +817,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 }
                 break;
             }
-            case 0xFF: {  // Additional remainder bits to carry over
+            case VERB_REMAINDER: {  // Additional remainder bits to carry over
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
