@@ -12,6 +12,7 @@
 // You should have received a copy of the CC0 Public Domain Dedication along with this document.
 // If not, see https://creativecommons.org/publicdomain/zero/1.0/legalcode.
 
+// Disclaimer: Patent rights reserved regardless of the license above
 // TODO This file is work in progress.
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
@@ -29,7 +30,7 @@ uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
     return dx*dx + dy*dy + dz*dz;
 }
 
-// Function to find most frequent values in an array
+// Function to find most frequent values in an array for lookup tables
 int find_most_frequent(const Vector3D* data, size_t length,
                         Vector3D* lut, size_t lut_size) {
     // Simple frequency counting
@@ -38,11 +39,9 @@ int find_most_frequent(const Vector3D* data, size_t length,
         int count;
     } FreqEntry;
 
-    // Allocate memory on the stack
     FreqEntry freq[length];
     size_t unique_count = 0;
 
-    // Initialize the frequency array
     for (size_t i = 0; i < length; i++) {
         freq[i].count = 0;
     }
@@ -119,27 +118,13 @@ bool has_lut_differences(const Vector3D* input, const Vector3D* reference,
     return false;
 }
 
-// Function to check if block has large differences
-bool has_large_differences(const Vector3D* input, const Vector3D* reference, 
-                         size_t length) {
-    for (size_t i = 0; i < length; i++) {
-        int dx = abs(input[i].x - reference[i].x);
-        int dy = abs(input[i].y - reference[i].y);
-        int dz = abs(input[i].z - reference[i].z);
-        if (dx > 16 || dy > 16 || dz > 16) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // Function to determine difference range for a block
 typedef enum {
     DIFF_SMALL,
     DIFF_MEDIUM,
     DIFF_SIGNIFICANT,
     DIFF_LARGE,
-    DIFF_CARRY
+    DIFF_REMAINDER
 } DiffRange;
 
 DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_t length) {
@@ -179,28 +164,28 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
             if (dx >= 0x40 || mx == dx) {
                 has_large = true;
             } else {
-                return DIFF_CARRY;
+                return DIFF_REMAINDER;
             }
         }
         if ((mx & 0x30) | (my & 0x30) | (mz & 0x30)) {
             if (dx >= 0x10 || mx == dx) {
                 has_significant = true;
             } else {
-                return DIFF_CARRY;
+                return DIFF_REMAINDER;
             }
         }
         if ((mx & 0x0c) | (my & 0x0c) | (mz & 0x0c)) {
             if (dx >= 0x04 || mx == dx) {
                 has_medium = true;
             } else {
-                return DIFF_CARRY;
+                return DIFF_REMAINDER;
             }
         }
         if ((mx & 0x03) | (my & 0x03) | (mz & 0x03)) {
             if (dx >= 0x01 || mx == dx) {
                 has_small = true;
             } else {
-                return DIFF_CARRY;
+                return DIFF_REMAINDER;
             }   
         }
     }
@@ -216,7 +201,7 @@ DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size
     if (has_small) {
         return DIFF_SMALL;
     }
-    // TODO carry?
+    // TODO This should never happen
     return DIFF_SMALL;
 }
 
@@ -333,7 +318,6 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         DiffRange range = get_diff_masked(&input[input_pos], 
                                        &reference[input_pos], fine_length);
 
-        //printf("range: %d\n", range);
         if (range == DIFF_LARGE) {
             // If we're not returning after processing the block
             output[output_pos++] = 0xEE;  // New marker for remaining data
@@ -512,15 +496,14 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
     }
 
-    // DIFF_CARRY
-    output[output_pos++] = 0xFF;  // BIT1 marker
+    // Remainder propagated to more significant bits
+    output[output_pos++] = 0xFF;  // marker
     output[output_pos++] = fine_length;    // Block length
             
     uint8_t bit_buffer = 0;
     int bit_pos = 0;
             
     for (size_t i = 0; i < fine_length; i++) {
-                
         // Pack bits 0 and 1 of each dimension
         uint8_t x_bits = ((int)input[input_pos + i].x - (int)reference[input_pos + i].x) & 0x03;
         uint8_t y_bits = ((int)input[input_pos + i].y - (int)reference[input_pos + i].y) & 0x03;
@@ -557,7 +540,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     return output_pos;
 }
 
-// Function to encode zero blocks and linear blocks
+// Function to encode blocks
 size_t encode_block(const Vector3D* input, const Vector3D* reference, 
                    size_t input_size, uint8_t* output, size_t output_size) {
     size_t output_pos = 0;
@@ -569,7 +552,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
             printf("Overflow\n");
             break;
         }
-        // Check for zero difference block
+        // Skip zero difference blocks like h.264, h.265
         size_t zero_length = 0;
         while (zero_length < 200 && input_pos + zero_length < input_size && 
                memcmp(&input[input_pos + zero_length], 
@@ -579,31 +562,31 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
         
         if (zero_length > 0) {
-            output[output_pos++] = 0x00;  // Skip block marker
+            output[output_pos++] = 0x00;
             output[output_pos++] = zero_length;
             input_pos += zero_length;
             continue;
         }
 
-        // Try linear encoding for run-length and slopes.
+        // Linear encoding for run-length and slopes like PNG
         size_t linear_encoded = encode_linear(&input[input_pos], &reference[input_pos],
                                         input_size - input_pos, &output[output_pos]);
         if (linear_encoded > 0) {
             output_pos += linear_encoded;
-            input_pos += linear_length;  // LUT uses 25-vector blocks
+            input_pos += linear_length;
             continue;
         }
 
-        // Try LUT encoding
+        // Lookup table encoding like GIF
         size_t lut_encoded = encode_lut(&input[input_pos], &reference[input_pos],
                                         input_size - input_pos, &output[output_pos]);
         if (lut_encoded > 0) {
             output_pos += lut_encoded;
-            input_pos += 25;  // LUT uses 25-vector blocks
+            input_pos += 25;
             continue;
         }
 
-        // If all failed, try quantized encoding
+        // Quantized encoding like JPEG-XS
         size_t quantized_encoded = encode_quantized(&input[input_pos], &reference[input_pos],
                                                     input_size - input_pos, &output[output_pos]);
         if (quantized_encoded > 0) {
@@ -627,7 +610,6 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
     while (input_pos < input_size) {
         uint8_t block_type = input[input_pos++];
         uint8_t length = input[input_pos++];
-        //printf("%x\n", block_type);
         
         switch (block_type) {
             case 0x00: {  // Skip block
@@ -664,28 +646,26 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 int bits_remaining = 0;
     
                 for (size_t i = 0; i < length; i++) {
-                    if (bits_remaining < 2) {  // Changed from 4 to 2
+                    if (bits_remaining < 2) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
                     }
         
                     // Extract 2-bit index (changed from 4-bit)
-                    uint8_t index = bit_buffer & 0x03;  // Changed from 0x0F
-                    bit_buffer >>= 2;  // Changed from 4
-                    bits_remaining -= 2;  // Changed from 4
-        
+                    uint8_t index = bit_buffer & 0x03;
+                    bit_buffer >>= 2;
+                    bits_remaining -= 2;
+
                     // Copy vector from LUT
                     output[output_pos++] = lut[index];
                 }
                 break;
             }
-
             case 0xEE: {  // Additional bits 7-6 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
-                for (size_t i = 0; i < length; i++) {                    
-                    // Extract 2 bits for each dimension and shift left by 2
+                for (size_t i = 0; i < length; i++) {
                     if (bits_remaining == 0) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
@@ -709,9 +689,10 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     bits_remaining -= 2;
 
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = (reference[output_pos].x & 0x00) + x_bits;
-                    output[output_pos].y = (reference[output_pos].y & 0x00) + y_bits;
-                    output[output_pos].z = (reference[output_pos].z & 0x00) + z_bits;
+                    uint8_t dithering = (output_pos % 1) ? 0x00: 0x00;
+                    output[output_pos].x = (dithering & 0x3F) | x_bits;
+                    output[output_pos].y = (dithering & 0x3F) | y_bits;
+                    output[output_pos].z = (dithering & 0x3F) | z_bits;
                     output_pos++;
                 }
                 break;
@@ -720,8 +701,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
-                for (size_t i = 0; i < length; i++) {                    
-                    // Extract 2 bits for each dimension and shift left by 2
+                for (size_t i = 0; i < length; i++) {
                     if (bits_remaining == 0) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
@@ -745,20 +725,18 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     bits_remaining -= 2;
                     
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = (reference[output_pos].x & 0xc0) + x_bits;
-                    output[output_pos].y = (reference[output_pos].y & 0xc0) + y_bits;
-                    output[output_pos].z = (reference[output_pos].z & 0xc0) + z_bits;
+                    output[output_pos].x = (reference[output_pos].x & 0xcf) | x_bits;
+                    output[output_pos].y = (reference[output_pos].y & 0xcf) | y_bits;
+                    output[output_pos].z = (reference[output_pos].z & 0xcf) | z_bits;
                     output_pos++;
                 }
                 break;
             }
-
-            case 0xCC: {  // Additional bits 3-2 block (differences 4-15)
+            case 0xCC: {  // Additional bits 3-2 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
-                for (size_t i = 0; i < length; i++) {                    
-                    // Extract 2 bits for each dimension and shift left by 2
+                for (size_t i = 0; i < length; i++) {
                     if (bits_remaining == 0) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
@@ -782,20 +760,18 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     bits_remaining -= 2;
                     
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = (reference[output_pos].x & 0xf0) + x_bits;
-                    output[output_pos].y = (reference[output_pos].y & 0xf0) + y_bits;
-                    output[output_pos].z = (reference[output_pos].z & 0xf0) + z_bits;
+                    output[output_pos].x = (reference[output_pos].x & 0xf3) | x_bits;
+                    output[output_pos].y = (reference[output_pos].y & 0xf3) | y_bits;
+                    output[output_pos].z = (reference[output_pos].z & 0xf3) | z_bits;
                     output_pos++;
                 }
                 break;
             }
-            
-            case 0xBB: {  // Additional bits 1-0 block (differences < 4)
+            case 0xBB: {  // Additional bits 1-0 block
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
                 for (size_t i = 0; i < length; i++) {
-                    // Extract 2 bits for each dimension (using bits 1,0)
                     if (bits_remaining == 0) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
@@ -823,19 +799,18 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     }
                     
                     // Reconstruct vector from reference and difference
-                    output[output_pos].x = (reference[output_pos].x & 0xfc) + x_bits;
-                    output[output_pos].y = (reference[output_pos].y & 0xfc) + y_bits;
-                    output[output_pos].z = (reference[output_pos].z & 0xfc) + z_bits;
+                    output[output_pos].x = (reference[output_pos].x & 0xfc) | x_bits;
+                    output[output_pos].y = (reference[output_pos].y & 0xfc) | y_bits;
+                    output[output_pos].z = (reference[output_pos].z & 0xfc) | z_bits;
                     output_pos++;
                 }
                 break;
             }
-            case 0xFF: {  // Additional bits 1-0 block (differences < 4)
+            case 0xFF: {  // Additional remainder bits to carry over
                 uint8_t bit_buffer = 0;
                 int bits_remaining = 0;
                 
                 for (size_t i = 0; i < length; i++) {
-                    // Extract 2 bits for each dimension (using bits 1,0)
                     if (bits_remaining == 0) {
                         bit_buffer = input[input_pos++];
                         bits_remaining = 8;
