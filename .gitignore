@@ -1,7 +1,8 @@
 c/a.out
 sandbox
-send_png/a.out
-send_png/b.out
+send_png/*.out
 send_png/b.png
 send_png/frame*
+send_png/[0123456789]*.png
+send_png/*.mp4
 */.vs
