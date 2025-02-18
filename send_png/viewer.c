@@ -9,11 +9,11 @@
 
 typedef struct {
     char *name;
-    long number;  // Changed to long for 8-digit numbers
+    long long number;  // Using long long for microsecond timestamps
 } ImageFile;
 
 int compare(const void *a, const void *b) {
-    long diff = ((ImageFile*)a)->number - ((ImageFile*)b)->number;
+    long long diff = ((ImageFile*)a)->number - ((ImageFile*)b)->number;
     return (diff > 0) - (diff < 0);
 }
 
@@ -34,8 +34,9 @@ int main() {
     visual = DefaultVisual(display, screen);
     colormap = DefaultColormap(display, screen);
     
+    // Changed window size from 192x192 to 384x384
     window = XCreateSimpleWindow(display, RootWindow(display, screen),
-                               100, 100, 192, 192, 1,
+                               100, 100, 384, 384, 1,
                                BlackPixel(display, screen),
                                WhitePixel(display, screen));
     
@@ -62,22 +63,19 @@ int main() {
     while ((entry = readdir(dir)) != NULL) {
         char *ext = strrchr(entry->d_name, '.');
         if (ext && strcmp(ext, ".png") == 0) {
-            // Check if filename is 8 digits followed by .png
-            if (ext - entry->d_name == 8) {
-                char number_str[9];
-                strncpy(number_str, entry->d_name, 8);
-                number_str[8] = '\0';
-                
-                char *endptr;
-                long num = strtol(number_str, &endptr, 10);
-                
-                if (*endptr == '\0') {  // Valid number
-                    files = realloc(files, (file_count + 1) * sizeof(ImageFile));
-                    files[file_count].name = strdup(entry->d_name);
-                    files[file_count].number = num;
-                    file_count++;
-                }
+            char *number_str = strdup(entry->d_name);
+            number_str[ext - entry->d_name] = '\0';
+            
+            char *endptr;
+            long long num = strtoll(number_str, &endptr, 10);
+            
+            if (*endptr == '\0') {  // Valid number
+                files = realloc(files, (file_count + 1) * sizeof(ImageFile));
+                files[file_count].name = strdup(entry->d_name);
+                files[file_count].number = num;
+                file_count++;
             }
+            free(number_str);
         }
     }
     closedir(dir);
@@ -95,17 +93,26 @@ int main() {
     
     while (running) {
         for (int i = 0; i < file_count && running; i++) {
-            printf("Displaying %s\n", files[i].name);  // Debug output
+            printf("Displaying %s\n", files[i].name);
             
             Imlib_Image img = imlib_load_image(files[i].name);
             if (img) {
                 imlib_context_set_image(img);
-                imlib_render_image_on_drawable_at_size(0, 0, 192, 192);
+                // Changed rendering size from 192x192 to 384x384
+                imlib_render_image_on_drawable_at_size(0, 0, 384, 384);
                 imlib_free_image();
                 XFlush(display);
             }
             
-            usleep(30000);  // 30ms delay
+            // Calculate delay to next timestamp (except for last image)
+            if (i < file_count - 1) {
+                long long delay_us = files[i + 1].number - files[i].number;
+                if (delay_us > 0) {
+                    usleep((useconds_t)delay_us);
+                }
+            } else {
+                usleep(30000);  // Default delay for last image
+            }
             
             while (XPending(display)) {
                 XNextEvent(display, &event);
