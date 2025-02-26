@@ -15,21 +15,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include "codec21.h"
+#include "display.h"
 
 #define PORT 14550
 #define BUFFER_SIZE 1024
-#define WIDTH 1920
-#define HEIGHT 1080
 #define STRIDE (WIDTH * 3 + 1)
-
-typedef struct {
-    uint8_t x;
-    uint8_t y;
-    uint8_t z;
-} Vector3D;
-
-extern size_t decode_blocks(const uint8_t* input, size_t input_size, 
-                    Vector3D* output, const Vector3D* reference);
 
 typedef struct {
     uint8_t* input;
@@ -40,7 +31,7 @@ typedef struct {
 
 static BufferPair buffer_pairs[2];
 static volatile int active_pair = 0;
-static volatile int kanban = 0;
+volatile int kanban = 0;
 
 typedef struct {
     int thread_id;

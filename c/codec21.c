@@ -1,10 +1,3 @@
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stdlib.h>
-#include <float.h>
-#include <stdio.h>
-
 // This document is Licensed under Creative Commons CC0.
 // To the extent possible under law, the author(s) have dedicated all copyright and related and neighboring rights
 // to this document to the public domain worldwide.
@@ -14,6 +7,13 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 // TODO This file is work in progress.
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+#include <stdlib.h>
+#include <float.h>
+#include <stdio.h>
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
