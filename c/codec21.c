@@ -978,7 +978,7 @@ void unit_test_5(Vector3D* buffer, size_t num_vectors) {
     }
 }
 
-int main(int argc, char *argv[]) {
+int tests() {
     // Sample size for testing
     const size_t NUM_VECTORS = 1024;
     
@@ -1046,3 +1046,10 @@ int main(int argc, char *argv[]) {
     
     return 0;
 }
+
+/*
+int main(int argc, char *argv[]) {
+    tests();    
+    return 0;
+}
+*/

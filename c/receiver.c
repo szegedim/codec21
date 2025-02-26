@@ -1,3 +1,11 @@
+// This document is Licensed under Creative Commons CC0.
+// To the extent possible under law, the author(s) have dedicated all copyright and related and neighboring rights
+// to this document to the public domain worldwide.
+// This document is distributed without any warranty.
+// You should have received a copy of the CC0 Public Domain Dedication along with this document.
+// If not, see https://creativecommons.org/publicdomain/zero/1.0/legalcode.
+
+// Disclaimer: Patent rights reserved regardless of the license above
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,51 +14,137 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <errno.h>
+#include <pthread.h>
 
-#define PORT 14550    // UDP port to listen on
+#define PORT 14550
 #define BUFFER_SIZE 1024
-#define STRIDE (1920 * 4 + 1)  // Fixed stride for 1920 pixels * 4 bytes + 1
-#define HEIGHT 1080            // Fixed height for 1080p resolution
+#define WIDTH 1920
+#define HEIGHT 1080
+#define STRIDE (WIDTH * 3 + 1)
 
-void process_udp_buffer(uint8_t* dest_buffer, size_t stride, size_t height, 
-                       const uint8_t* packet_buffer, size_t packet_length);
+typedef struct {
+    uint8_t x;
+    uint8_t y;
+    uint8_t z;
+} Vector3D;
 
-int main(void) {
-    // Allocate destination buffer
-    uint8_t* dest_buffer = (uint8_t*)calloc(STRIDE * HEIGHT, sizeof(uint8_t));
-    if (!dest_buffer) {
-        perror("Failed to allocate destination buffer");
-        return 1;
+extern size_t decode_blocks(const uint8_t* input, size_t input_size, 
+                    Vector3D* output, const Vector3D* reference);
+
+typedef struct {
+    uint8_t* input;
+    Vector3D* output;
+    volatile size_t current_line;
+    volatile size_t current_pos;
+} BufferPair;
+
+static BufferPair buffer_pairs[2];
+static volatile int active_pair = 0;
+static volatile int kanban = 0;
+
+typedef struct {
+    int thread_id;
+} ThreadParams;
+
+void switch_buffer_pair(void) {
+    if (kanban) {
+        active_pair = 1 - active_pair;
+        buffer_pairs[active_pair].current_line = 0;
+        buffer_pairs[active_pair].current_pos = 0;
+        memset(buffer_pairs[active_pair].input, 0, STRIDE * HEIGHT);
+        kanban = 0;
+    }
+}
+
+void* decoder_thread(void* arg) {
+    ThreadParams* params = (ThreadParams*)arg;
+    int thread_id = params->thread_id;
+    
+    while (1) {
+        BufferPair* current = &buffer_pairs[active_pair];
+        BufferPair* other = &buffer_pairs[1 - active_pair];
+        size_t line = thread_id;
+
+        while (line < HEIGHT) {
+            if (line < current->current_line) {
+                uint8_t* input_line = current->input + (line * STRIDE);
+                Vector3D* output_line = current->output + (line * WIDTH);
+                Vector3D* reference_line = other->output + (line * WIDTH);
+                
+                decode_blocks(input_line, STRIDE, output_line, reference_line);
+                line += 2;
+            }
+        }
+    }
+    return NULL;
+}
+
+void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
+    BufferPair* current = &buffer_pairs[active_pair];
+
+    if (current->current_line >= HEIGHT) {
+        return;
     }
 
-    // Create UDP socket
+    if (packet_length == 1 && packet_buffer[0] == '\t') {
+        switch_buffer_pair();
+        return;
+    }
+
+    uint8_t* line_start = current->input + (current->current_line * STRIDE);
+    
+    size_t process_length = packet_length;
+    if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
+        process_length--;
+    }
+
+    for (size_t i = 0; i < process_length; i++) {
+        if (current->current_pos < STRIDE) {
+            line_start[current->current_pos++] = packet_buffer[i];
+        }
+    }
+
+    if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
+        current->current_line++;
+        current->current_pos = 0;
+    }
+}
+
+int main(void) {
+    for (int i = 0; i < 2; i++) {
+        buffer_pairs[i].input = (uint8_t*)calloc(STRIDE * HEIGHT, sizeof(uint8_t));
+        buffer_pairs[i].output = (Vector3D*)calloc(WIDTH * HEIGHT, sizeof(Vector3D));
+        buffer_pairs[i].current_line = 0;
+        buffer_pairs[i].current_pos = 0;
+    }
+
+    pthread_t decoder_threads[2];
+    ThreadParams thread_params[2] = {{0}, {1}};
+    
+    for (int i = 0; i < 2; i++) {
+        pthread_create(&decoder_threads[i], NULL, decoder_thread, &thread_params[i]);
+    }
+
     int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock_fd < 0) {
         perror("Socket creation failed");
-        free(dest_buffer);
         return 1;
     }
 
-    // Configure socket address
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = INADDR_ANY,
         .sin_port = htons(PORT)
     };
 
-    // Bind socket
     if (bind(sock_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
         close(sock_fd);
-        free(dest_buffer);
         return 1;
     }
 
-    printf("Listening on UDP port %d (Stride: %d, Height: %d)...\n", 
-           PORT, STRIDE, HEIGHT);
+    printf("UDP server listening on port %d\n", PORT);
 
-    // Receive packets
     while (1) {
         uint8_t packet_buffer[BUFFER_SIZE];
         struct sockaddr_in client_addr;
@@ -64,56 +158,8 @@ int main(void) {
             continue;
         }
 
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        printf("Received %zd bytes from %s:%d\n", 
-               packet_length, client_ip, ntohs(client_addr.sin_port));
-
-        // Process the received packet
-        process_udp_buffer(dest_buffer, STRIDE, HEIGHT, packet_buffer, packet_length);
+        process_udp_buffer(packet_buffer, packet_length);
     }
 
-    // Cleanup (never reached in this example)
-    close(sock_fd);
-    free(dest_buffer);
     return 0;
-}
-
-void process_udp_buffer(uint8_t* dest_buffer, size_t stride, size_t height, 
-                       const uint8_t* packet_buffer, size_t packet_length) {
-    static size_t current_line = 0;
-    static size_t current_pos = 0;
-
-    // Check if we've exceeded the vertical bounds
-    if (current_line >= height) {
-        return;
-    }
-
-    // Check for horizontal tab (termination character)
-    if (packet_length == 1 && packet_buffer[0] == '\t') {
-        return;
-    }
-
-    // Calculate the start position for the current line
-    uint8_t* line_start = dest_buffer + (current_line * stride);
-
-    // Process each byte in the packet except the last one
-    size_t process_length = packet_length;
-    if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
-        process_length--; // Don't process the vertical tab in the main loop
-    }
-
-    // Process regular data
-    for (size_t i = 0; i < process_length; i++) {
-        // Only write if we haven't exceeded the stride
-        if (current_pos < stride) {
-            line_start[current_pos++] = packet_buffer[i];
-        }
-    }
-
-    // Handle vertical tab if it's the last character
-    if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
-        current_line++;
-        current_pos = 0;
-    }
 }
