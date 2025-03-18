@@ -18,6 +18,8 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 
+#define PORT 14550
+
 typedef struct {
     char *name;
     long long number;  // Using long long for microsecond timestamps
@@ -65,7 +67,7 @@ int main() {
     
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(8888);
+    server_addr.sin_port = htons(PORT);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1"); // localhost
     
     DIR *dir;
