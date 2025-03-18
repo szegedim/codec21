@@ -5,4 +5,6 @@ send_png/b.png
 send_png/frame*
 send_png/[0123456789]*.png
 send_png/*.mp4
+e2e/[0123456789]*.png
 */.vs
+.vs
