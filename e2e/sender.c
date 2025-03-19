@@ -147,16 +147,43 @@ int main() {
                 Vector3D* image_data = image_to_vector3d(img, &image_size);
                 
                 if (image_data) {
-                    // Allocate memory for compressed data (worst case: slightly larger than original)
-                    size_t max_compressed_size = image_size * sizeof(Vector3D) * 2;
-                    uint8_t* compressed_data = malloc(max_compressed_size);
+                    // Calculate the dimensions
+                    int width = WIDTH;
+                    int height = HEIGHT;
                     
-                    if (compressed_data) {
-                        // Encode the image
-                        size_t compressed_size = encode_block(
-                            image_data, reference_frame, 
-                            image_size, compressed_data, max_compressed_size
-                        );
+                    // Allocate memory for compressed data (worst case: slightly larger than original)
+                    // We need more space now since we're adding separators and potential overhead
+                    size_t max_compressed_size = image_size * sizeof(Vector3D) * 2 + height;
+                    uint8_t* compressed_data = malloc(max_compressed_size);
+                    uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2); // Temporary buffer for each line
+                    
+                    if (compressed_data && temp_buffer) {
+                        size_t compressed_size = 0;
+                        
+                        // Process each line separately
+                        for (int line = 0; line < height; line++) {
+                            // Encode one line at a time
+                            size_t line_compressed_size = encode_block(
+                                &image_data[line * width], 
+                                &reference_frame[line * width], 
+                                width, 
+                                temp_buffer, 
+                                width * sizeof(Vector3D) * 2
+                            );
+                            
+                            // Copy the compressed line to the main buffer
+                            memcpy(compressed_data + compressed_size, temp_buffer, line_compressed_size);
+                            compressed_size += line_compressed_size;
+                            
+                            // Add a separator after each line
+                            if (line < height - 1) {
+                                compressed_data[compressed_size] = '\v'; // Vertical tab separator for all lines except last
+                                compressed_size++;
+                            } else {
+                                compressed_data[compressed_size] = '\t'; // Tab character after the last line
+                                compressed_size++;
+                            }
+                        }
                         
                         printf("Compressed size: %zu bytes\n", compressed_size);
                         
@@ -197,6 +224,7 @@ int main() {
                         memcpy(reference_frame, image_data, image_size * sizeof(Vector3D));
                         
                         free(compressed_data);
+                        free(temp_buffer);
                     }
                     
                     free(image_data);
@@ -209,9 +237,11 @@ int main() {
             if (i < file_count - 1) {
                 long long delay_us = files[i + 1].number - files[i].number;
                 if (delay_us > 0) {
+                    printf("Delaying for %lld microseconds\n", delay_us);
                     usleep((useconds_t)delay_us);
                 }
             } else {
+                printf("Delaying for 30000 microseconds (default for last frame)\n");
                 usleep(30000);  // Default delay for last image
             }
             
