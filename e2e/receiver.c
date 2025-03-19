@@ -19,7 +19,7 @@
 #include "display.h"
 
 #define PORT 14550
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE (WIDTH * 3 * 2 + 1 + 1)
 #define STRIDE (WIDTH * 3 + 1)
 
 typedef struct {
@@ -38,7 +38,10 @@ typedef struct {
 } ThreadParams;
 
 void switch_buffer_pair(void) {
+    // Print the current line before switching buffers
+    printf("Switching buffers - current line: %zu\n", buffer_pairs[active_pair].current_line);
     if (kanban) {
+        
         active_pair = 1 - active_pair;
         buffer_pairs[active_pair].current_line = 0;
         buffer_pairs[active_pair].current_pos = 0;
@@ -55,6 +58,7 @@ void* decoder_thread(void* arg) {
         BufferPair* current = &buffer_pairs[active_pair];
         BufferPair* other = &buffer_pairs[1 - active_pair];
         size_t line = thread_id;
+        int lines_processed = 0;
 
         while (line < HEIGHT) {
             if (line < current->current_line) {
@@ -63,22 +67,38 @@ void* decoder_thread(void* arg) {
                 Vector3D* reference_line = other->output + (line * WIDTH);
                 
                 decode_blocks(input_line, STRIDE, output_line, reference_line);
+                lines_processed++;
                 line += 2;
             }
+            
+            // Check if all lines are processed
+            // Only thread 0 should set kanban to avoid race conditions
+            if (thread_id == 0 && current->current_line >= HEIGHT) {
+                // If we've processed all lines and received all data for this frame
+                printf("All lines processed by decoder thread, setting kanban\n");
+                kanban = 1;
+                // Allow some time for display before switching
+                usleep(16000); // ~16ms (60fps)
+            }
+            
+            // Small sleep to prevent CPU hogging
+            usleep(1000);
         }
     }
     return NULL;
 }
 
 void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
+    
     BufferPair* current = &buffer_pairs[active_pair];
 
-    if (current->current_line >= HEIGHT) {
+    if (packet_length == 1 && packet_buffer[0] == '\t') {
+        printf("Frame end marker detected (\\t)\n");
+        switch_buffer_pair();
         return;
     }
 
-    if (packet_length == 1 && packet_buffer[0] == '\t') {
-        switch_buffer_pair();
+    if (current->current_line >= HEIGHT) {
         return;
     }
 
@@ -96,6 +116,8 @@ void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
     }
 
     if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
+        printf("Received packet with length %zu bytes\n", packet_length);
+
         current->current_line++;
         current->current_pos = 0;
     }

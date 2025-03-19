@@ -171,54 +171,34 @@ int main() {
                                 width * sizeof(Vector3D) * 2
                             );
                             
-                            // Copy the compressed line to the main buffer
-                            memcpy(compressed_data + compressed_size, temp_buffer, line_compressed_size);
-                            compressed_size += line_compressed_size;
-                            
-                            // Add a separator after each line
-                            if (line < height - 1) {
-                                compressed_data[compressed_size] = '\v'; // Vertical tab separator for all lines except last
-                                compressed_size++;
-                            } else {
-                                compressed_data[compressed_size] = '\t'; // Tab character after the last line
-                                compressed_size++;
+                            // Copy the compressed line to a buffer
+                            uint8_t* line_buffer = malloc(line_compressed_size + 1); // +1 for separator
+                            if (!line_buffer) {
+                                fprintf(stderr, "Failed to allocate line buffer\n");
+                                continue;
                             }
-                        }
-                        
-                        printf("Compressed size: %zu bytes\n", compressed_size);
-                        
-                        // Send the compressed data via UDP
-                        if (compressed_size > 0) {
-                            // Send data in chunks to respect UDP packet size limits
-                            const size_t MAX_CHUNK_SIZE = 1400; // Safe UDP packet size
                             
-                            // Create a properly sized header with frame number and total size
-                            // Using uint32_t for frame number and uint32_t for size to ensure consistent size
-                            uint32_t header[3]; // 12 bytes total: frame number, size high bits, size low bits
+                            // Copy the data and add the separator
+                            memcpy(line_buffer, temp_buffer, line_compressed_size);
+                            line_buffer[line_compressed_size] = '\v'; // Add vertical tab separator
                             
-                            // Store frame number
-                            header[0] = (uint32_t)i;
-                            
-                            // Split compressed_size into two 32-bit parts to ensure portability
-                            header[1] = (uint32_t)(compressed_size & 0xFFFFFFFF);         // Low 32 bits
-                            header[2] = (uint32_t)((compressed_size >> 32) & 0xFFFFFFFF); // High 32 bits
-                            
-                            // Send the header
-                            sendto(sockfd, header, sizeof(header), 0, 
+                            // Send this line as a separate packet
+                            sendto(sockfd, line_buffer, line_compressed_size + 1, 0,
                                   (struct sockaddr*)&server_addr, sizeof(server_addr));
                             
-                            // Then send the actual data in chunks
-                            for (size_t offset = 0; offset < compressed_size; offset += MAX_CHUNK_SIZE) {
-                                size_t chunk_size = compressed_size - offset;
-                                if (chunk_size > MAX_CHUNK_SIZE) chunk_size = MAX_CHUNK_SIZE;
-                                
-                                sendto(sockfd, compressed_data + offset, chunk_size, 0, 
-                                      (struct sockaddr*)&server_addr, sizeof(server_addr));
-                                
-                                // Small delay to avoid overwhelming the receiver
-                                usleep(1000);
-                            }
+                            printf("Sent line %d (%zu bytes + separator)\n", line, line_compressed_size);
+                            free(line_buffer);
+                            
+                            // Small delay to avoid overwhelming the receiver
+                            usleep(500);
                         }
+                        
+                        // Send a separate packet with just a tab character to signal end of frame
+                        uint8_t frame_end_marker = '\t';
+                        sendto(sockfd, &frame_end_marker, 1, 0,
+                              (struct sockaddr*)&server_addr, sizeof(server_addr));
+                        
+                        printf("Sent frame end marker (\\t)\n");
                         
                         // Update reference frame for next iteration
                         memcpy(reference_frame, image_data, image_size * sizeof(Vector3D));
