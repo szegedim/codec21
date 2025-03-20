@@ -109,36 +109,18 @@ int main() {
     printf("Found %d matching files\n", file_count);
     qsort(files, file_count, sizeof(ImageFile), compare);
     
-    // Allocate memory for reference frame
+    // Allocate memory for reference frame only (remove reference_frame_copy from here)
     Vector3D* reference_frame = calloc(WIDTH * HEIGHT, sizeof(Vector3D));
     if (!reference_frame) {
         fprintf(stderr, "Failed to allocate memory for reference frame\n");
         return 1;
     }
     
-    int running = 1;
-    char input_buffer[10];
-    
     printf("Starting continuous processing loop. Press Ctrl+C to quit...\n");
+
+    int running = 1;
     
     while (running) {
-        // Non-blocking check for input to allow quitting with 'q'
-        fd_set readfds;
-        struct timeval tv;
-        FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
-        tv.tv_sec = 0;
-        tv.tv_usec = 0;
-        
-        if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv) > 0) {
-            if (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-                if (input_buffer[0] == 'q' || input_buffer[0] == 'Q') {
-                    running = 0;
-                    break;
-                }
-            }
-        }
-        
         for (int i = 0; i < file_count && running; i++) {
             printf("Processing %s\n", files[i].name);
             
@@ -155,13 +137,19 @@ int main() {
                     uint8_t* compressed_data = malloc(max_compressed_size);
                     uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2);
                     
-                    if (compressed_data && temp_buffer) {
+                    // Allocate memory for reference_frame_copy
+                    Vector3D* reference_frame_copy = malloc(WIDTH * HEIGHT * sizeof(Vector3D));
+                    
+                    if (compressed_data && temp_buffer && reference_frame_copy) {
                         size_t compressed_size = 0;
+                        
+                        // Make a copy of the reference frame at the start of each frame processing
+                        memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                         
                         for (int line = 0; line < height; line++) {
                             size_t line_compressed_size = encode_block(
                                 &image_data[line * width], 
-                                &reference_frame[line * width], 
+                                &reference_frame_copy[line * width], 
                                 width, 
                                 temp_buffer, 
                                 width * sizeof(Vector3D) * 2
@@ -178,7 +166,15 @@ int main() {
                             
                             sendto(sockfd, line_buffer, line_compressed_size + 1, 0,
                                   (struct sockaddr*)&server_addr, sizeof(server_addr));
-                            
+
+                            // Update reference frame with the line we just encoded and sent
+                            decode_blocks(
+                                temp_buffer,
+                                line_compressed_size,
+                                &reference_frame[line * width],
+                                &reference_frame_copy[line * width]
+                            );
+
                             printf("Sent line %d (%zu bytes + separator)\n", line, line_compressed_size);
                             free(line_buffer);
                             
@@ -193,8 +189,16 @@ int main() {
                         
                         memcpy(reference_frame, image_data, image_size * sizeof(Vector3D));
                         
+                        // Free reference_frame_copy before exiting this block
+                        free(reference_frame_copy);
                         free(compressed_data);
                         free(temp_buffer);
+                    } else {
+                        // Handle allocation failures
+                        if (compressed_data) free(compressed_data);
+                        if (temp_buffer) free(temp_buffer);
+                        if (reference_frame_copy) free(reference_frame_copy);
+                        fprintf(stderr, "Failed to allocate buffers for encoding\n");
                     }
                     
                     free(image_data);
@@ -214,21 +218,6 @@ int main() {
                 // When we reach the last file, small delay before looping back to first file
                 printf("Reached last file, looping back to beginning\n");
                 usleep(30000);  // 30ms delay before restarting
-            }
-            
-            // Non-blocking check for 'q' key to quit
-            FD_ZERO(&readfds);
-            FD_SET(STDIN_FILENO, &readfds);
-            tv.tv_sec = 0;
-            tv.tv_usec = 0;
-            
-            if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv) > 0) {
-                if (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-                    if (input_buffer[0] == 'q' || input_buffer[0] == 'Q') {
-                        running = 0;
-                        break;
-                    }
-                }
             }
         }
         
