@@ -119,9 +119,10 @@ int main() {
     int running = 1;
     char input_buffer[10];
     
-    printf("Press Enter to start processing or 'q' to quit...\n");
+    printf("Starting continuous processing loop. Press Ctrl+C to quit...\n");
+    
     while (running) {
-        // Non-blocking check for input
+        // Non-blocking check for input to allow quitting with 'q'
         fd_set readfds;
         struct timeval tv;
         FD_ZERO(&readfds);
@@ -147,22 +148,17 @@ int main() {
                 Vector3D* image_data = image_to_vector3d(img, &image_size);
                 
                 if (image_data) {
-                    // Calculate the dimensions
                     int width = WIDTH;
                     int height = HEIGHT;
                     
-                    // Allocate memory for compressed data (worst case: slightly larger than original)
-                    // We need more space now since we're adding separators and potential overhead
                     size_t max_compressed_size = image_size * sizeof(Vector3D) * 2 + height;
                     uint8_t* compressed_data = malloc(max_compressed_size);
-                    uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2); // Temporary buffer for each line
+                    uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2);
                     
                     if (compressed_data && temp_buffer) {
                         size_t compressed_size = 0;
                         
-                        // Process each line separately
                         for (int line = 0; line < height; line++) {
-                            // Encode one line at a time
                             size_t line_compressed_size = encode_block(
                                 &image_data[line * width], 
                                 &reference_frame[line * width], 
@@ -171,36 +167,30 @@ int main() {
                                 width * sizeof(Vector3D) * 2
                             );
                             
-                            // Copy the compressed line to a buffer
-                            uint8_t* line_buffer = malloc(line_compressed_size + 1); // +1 for separator
+                            uint8_t* line_buffer = malloc(line_compressed_size + 1);
                             if (!line_buffer) {
                                 fprintf(stderr, "Failed to allocate line buffer\n");
                                 continue;
                             }
                             
-                            // Copy the data and add the separator
                             memcpy(line_buffer, temp_buffer, line_compressed_size);
-                            line_buffer[line_compressed_size] = '\v'; // Add vertical tab separator
+                            line_buffer[line_compressed_size] = '\v';
                             
-                            // Send this line as a separate packet
                             sendto(sockfd, line_buffer, line_compressed_size + 1, 0,
                                   (struct sockaddr*)&server_addr, sizeof(server_addr));
                             
                             printf("Sent line %d (%zu bytes + separator)\n", line, line_compressed_size);
                             free(line_buffer);
                             
-                            // Small delay to avoid overwhelming the receiver
                             usleep(500);
                         }
                         
-                        // Send a separate packet with just a tab character to signal end of frame
                         uint8_t frame_end_marker = '\t';
                         sendto(sockfd, &frame_end_marker, 1, 0,
                               (struct sockaddr*)&server_addr, sizeof(server_addr));
                         
                         printf("Sent frame end marker (\\t)\n");
                         
-                        // Update reference frame for next iteration
                         memcpy(reference_frame, image_data, image_size * sizeof(Vector3D));
                         
                         free(compressed_data);
@@ -213,7 +203,7 @@ int main() {
                 imlib_free_image();
             }
             
-            // Calculate delay to next timestamp (except for last image)
+            // Calculate delay to next timestamp
             if (i < file_count - 1) {
                 long long delay_us = files[i + 1].number - files[i].number;
                 if (delay_us > 0) {
@@ -221,8 +211,9 @@ int main() {
                     usleep((useconds_t)delay_us);
                 }
             } else {
-                printf("Delaying for 30000 microseconds (default for last frame)\n");
-                usleep(30000);  // Default delay for last image
+                // When we reach the last file, small delay before looping back to first file
+                printf("Reached last file, looping back to beginning\n");
+                usleep(30000);  // 30ms delay before restarting
             }
             
             // Non-blocking check for 'q' key to quit
@@ -241,13 +232,7 @@ int main() {
             }
         }
         
-        // At the end of all files, exit the loop unless we want to repeat
-        running = 0;
-        printf("Processing complete. Press Enter to restart or 'q' to quit...\n");
-        fgets(input_buffer, sizeof(input_buffer), stdin);
-        if (input_buffer[0] != 'q' && input_buffer[0] != 'Q') {
-            running = 1;
-        }
+        // Continue running - don't stop or ask for input
     }
     
     // Clean up
