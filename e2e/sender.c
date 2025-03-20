@@ -135,7 +135,8 @@ int main() {
                     
                     size_t max_compressed_size = image_size * sizeof(Vector3D) * 2 + height;
                     uint8_t* compressed_data = malloc(max_compressed_size);
-                    uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2);
+                    // Modify the temp_buffer allocation to include space for the separator
+                    uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2 + 1); // +1 for separator
                     
                     // Allocate memory for reference_frame_copy
                     Vector3D* reference_frame_copy = malloc(WIDTH * HEIGHT * sizeof(Vector3D));
@@ -155,19 +156,11 @@ int main() {
                                 width * sizeof(Vector3D) * 2
                             );
                             
-                            uint8_t* line_buffer = malloc(line_compressed_size + 1);
-                            if (!line_buffer) {
-                                fprintf(stderr, "Failed to allocate line buffer\n");
-                                continue;
-                            }
+                            temp_buffer[line_compressed_size] = '\v';
                             
-                            memcpy(line_buffer, temp_buffer, line_compressed_size);
-                            line_buffer[line_compressed_size] = '\v';
-                            
-                            sendto(sockfd, line_buffer, line_compressed_size + 1, 0,
+                            sendto(sockfd, temp_buffer, line_compressed_size + 1, 0,
                                   (struct sockaddr*)&server_addr, sizeof(server_addr));
 
-                            // Update reference frame with the line we just encoded and sent
                             decode_blocks(
                                 temp_buffer,
                                 line_compressed_size,
@@ -176,7 +169,6 @@ int main() {
                             );
 
                             printf("Sent line %d (%zu bytes + separator)\n", line, line_compressed_size);
-                            free(line_buffer);
                             
                             usleep(500);
                         }
@@ -206,8 +198,7 @@ int main() {
                 
                 imlib_free_image();
             }
-            
-            // Calculate delay to next timestamp
+
             if (i < file_count - 1) {
                 long long delay_us = files[i + 1].number - files[i].number;
                 if (delay_us > 0) {
@@ -220,11 +211,8 @@ int main() {
                 usleep(30000);  // 30ms delay before restarting
             }
         }
-        
-        // Continue running - don't stop or ask for input
     }
     
-    // Clean up
     free(reference_frame);
     for (int i = 0; i < file_count; i++) {
         free(files[i].name);
