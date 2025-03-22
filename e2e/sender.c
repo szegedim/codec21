@@ -148,29 +148,43 @@ int main() {
                         memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                         
                         for (int line = 0; line < height; line++) {
-                            size_t line_compressed_size = encode_block(
-                                &image_data[line * width], 
-                                &reference_frame_copy[line * width], 
-                                width, 
-                                temp_buffer, 
-                                width * sizeof(Vector3D) * 2
-                            );
+                            int segment_width = width / 4; // Width of each segment
                             
-                            temp_buffer[line_compressed_size] = '\v';
-                            
-                            sendto(sockfd, temp_buffer, line_compressed_size + 1, 0,
-                                  (struct sockaddr*)&server_addr, sizeof(server_addr));
+                            for (int chunk = 0; chunk < 4; chunk++) {
+                                // Calculate the starting position for this chunk in the image data and reference frame
+                                int start_pos = line * width + chunk * segment_width;
+                                int current_segment_width = (chunk < 3) ? segment_width : width - (3 * segment_width); // Last chunk might be larger
+                                
+                                size_t chunk_compressed_size = encode_block(
+                                    &image_data[start_pos],
+                                    &reference_frame_copy[start_pos],
+                                    current_segment_width,
+                                    temp_buffer,
+                                    current_segment_width * sizeof(Vector3D) * 2
+                                );
+                                
+                                if (chunk == 3) {
+                                    temp_buffer[chunk_compressed_size] = '\v';
+                                    chunk_compressed_size++;
+                                }
+                                
+                                sendto(sockfd, temp_buffer, chunk_compressed_size, 0,
+                                       (struct sockaddr*)&server_addr, sizeof(server_addr));
+                                
+                                printf("Sent line %d, chunk %d (%zu bytes)\n", 
+                                        line, chunk, chunk_compressed_size);
 
-                            decode_blocks(
-                                temp_buffer,
-                                line_compressed_size,
-                                &reference_frame[line * width],
-                                &reference_frame_copy[line * width]
-                            );
-
-                            printf("Sent line %d (%zu bytes + separator)\n", line, line_compressed_size);
+                                decode_blocks(
+                                    temp_buffer,
+                                    chunk_compressed_size - (chunk == 3 ? 1 : 0), // Subtract 1 for separator if last chunk
+                                    &reference_frame[start_pos],
+                                    &reference_frame_copy[start_pos]
+                                );
+                                
+                                usleep(50);
+                            }
                             
-                            usleep(500);
+                            usleep(200); // Delay between lines
                         }
                         
                         uint8_t frame_end_marker = '\t';

@@ -58,7 +58,6 @@ void* decoder_thread(void* arg) {
         BufferPair* current = &buffer_pairs[active_pair];
         BufferPair* other = &buffer_pairs[1 - active_pair];
         size_t line = thread_id;
-        int lines_processed = 0;
 
         while (line < HEIGHT) {
             if (line < current->current_line) {
@@ -66,8 +65,12 @@ void* decoder_thread(void* arg) {
                 Vector3D* output_line = current->output + (line * WIDTH);
                 Vector3D* reference_line = other->output + (line * WIDTH);
                 
-                decode_blocks(input_line, STRIDE, output_line, reference_line);
-                lines_processed++;
+                size_t pixels_decompressed = decode_blocks(input_line, STRIDE, output_line, reference_line);
+                
+                // Print information about decompression result
+                printf("Thread %d: Decoded line %zu (%zu pixels decompressed)\n", 
+                       thread_id, line, pixels_decompressed);
+                
                 line += 2;
             }
             
@@ -89,6 +92,10 @@ void* decoder_thread(void* arg) {
 }
 
 void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
+    // Print info about every received packet
+    printf("Received packet with length %zu bytes%s\n", 
+           packet_length,
+           (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') ? " (with line separator \\v)" : "");
     
     BufferPair* current = &buffer_pairs[active_pair];
 
@@ -116,8 +123,7 @@ void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
     }
 
     if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
-        printf("Received packet with length %zu bytes\n", packet_length);
-
+        // Line completed
         current->current_line++;
         current->current_pos = 0;
     }
