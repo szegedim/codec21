@@ -7,22 +7,25 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 
-// gcc receiver.c codec21.c display.c -lX11 -lImlib2
-
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <Imlib2.h>
 #include "codec21.h"
 #include "display.h"
 
+#define WINDOW_WIDTH 640
+#define WINDOW_HEIGHT 640
+
 static Display *display = NULL;
 static Window window;
-static GC gc;
-static XImage *image = NULL;
-static char *image_data = NULL;
+static Visual *visual;
+static Colormap colormap;
+static Imlib_Image buffer_image = NULL;
+static DATA32 *image_data = NULL;
 
 int init_display(void) {
     display = XOpenDisplay(NULL);
@@ -32,66 +35,80 @@ int init_display(void) {
     }
     
     int screen = DefaultScreen(display);
+    visual = DefaultVisual(display, screen);
+    colormap = DefaultColormap(display, screen);
+    
     window = XCreateSimpleWindow(display, RootWindow(display, screen),
-                               0, 0, WIDTH, HEIGHT, 0,
+                               100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, 1,
                                BlackPixel(display, screen),
                                BlackPixel(display, screen));
     
     XSelectInput(display, window, ExposureMask | KeyPressMask);
     XMapWindow(display, window);
+    XFlush(display);
     
-    gc = XCreateGC(display, window, 0, NULL);
+    imlib_context_set_display(display);
+    imlib_context_set_visual(visual);
+    imlib_context_set_colormap(colormap);
+    imlib_context_set_drawable(window);
     
-    // Create XImage
-    Visual *visual = DefaultVisual(display, screen);
-    int depth = DefaultDepth(display, screen);
-    
-    image_data = (char*)malloc(WIDTH * HEIGHT * 4); // 32-bit aligned
-    if (!image_data) return 0;
-    
-    image = XCreateImage(display, visual, depth, ZPixmap, 0,
-                        image_data, WIDTH, HEIGHT, 32, 0);
-    if (!image) {
-        free(image_data);
+    // Create an Imlib2 image to work with
+    buffer_image = imlib_create_image(WIDTH, HEIGHT);
+    if (!buffer_image) {
+        fprintf(stderr, "Failed to create Imlib2 image\n");
         return 0;
     }
     
+    imlib_context_set_image(buffer_image);
+    image_data = imlib_image_get_data();
+    if (!image_data) {
+        fprintf(stderr, "Failed to get image data\n");
+        imlib_free_image();
+        return 0;
+    }
+    
+    // Clear the image initially
+    memset(image_data, 0, WIDTH * HEIGHT * 4);
+    
+    printf("Display initialized successfully with window size %dx%d\n", 
+           WINDOW_WIDTH, WINDOW_HEIGHT);
     return 1;
 }
 
 void display_frame(const Vector3D* buffer) {
-    if (!display || !image || !buffer) return;
+    if (!display || !buffer_image || !buffer || !image_data) return;
     
-    // Convert Vector3D buffer to XImage format
+    imlib_context_set_image(buffer_image);
+    
+    // Convert Vector3D buffer to Imlib2 image format (ARGB)
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
             const Vector3D* pixel = &buffer[y * WIDTH + x];
-            int idx = (y * WIDTH + x) * 4;
+            int idx = y * WIDTH + x;
             
-            image_data[idx + 0] = pixel->z;  // Blue
-            image_data[idx + 1] = pixel->y;  // Green
-            image_data[idx + 2] = pixel->x;  // Red
-            image_data[idx + 3] = 0xFF;      // Alpha
+            // ARGB format for Imlib2
+            image_data[idx] = (0xFF << 24) | // Alpha
+                             ((pixel->x & 0xFF) << 16) | // Red
+                             ((pixel->y & 0xFF) << 8) | // Green
+                             (pixel->z & 0xFF); // Blue
         }
     }
     
-    // Display the image
-    XPutImage(display, window, gc, image,
-              0, 0, 0, 0, WIDTH, HEIGHT);
-    XFlush(display);
+    imlib_image_set_has_alpha(1);
     
-    // Set kanban to indicate frame is displayed
-    kanban = 1;
+    // Render the image scaled to the window size
+    imlib_render_image_on_drawable_at_size(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+    XFlush(display);
 }
 
 void cleanup_display(void) {
-    if (image) {
-        image->data = NULL;  // Prevent XDestroyImage from freeing our buffer
-        XDestroyImage(image);
+    if (buffer_image) {
+        imlib_context_set_image(buffer_image);
+        imlib_free_image();
     }
-    if (image_data) free(image_data);
+    
     if (display) {
-        XFreeGC(display, gc);
         XCloseDisplay(display);
+        display = NULL;
     }
 }

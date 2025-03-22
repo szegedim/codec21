@@ -78,7 +78,12 @@ void* decoder_thread(void* arg) {
             // Only thread 0 should set kanban to avoid race conditions
             if (thread_id == 0 && current->current_line >= HEIGHT) {
                 // If we've processed all lines and received all data for this frame
-                printf("All lines processed by decoder thread, setting kanban\n");
+                printf("All lines processed by decoder thread, displaying frame\n");
+                
+                // Display the current frame
+                display_frame(current->output);
+                
+                printf("Frame displayed, setting kanban\n");
                 kanban = 1;
                 // Allow some time for display before switching
                 usleep(16000); // ~16ms (60fps)
@@ -143,6 +148,13 @@ int main(void) {
     for (int i = 0; i < 2; i++) {
         pthread_create(&decoder_threads[i], NULL, decoder_thread, &thread_params[i]);
     }
+
+    // Initialize display
+    if (init_display() == 0) {
+        fprintf(stderr, "Failed to initialize display\n");
+        return 1;
+    }
+    printf("Display initialized successfully\n");
 
     int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock_fd < 0) {
