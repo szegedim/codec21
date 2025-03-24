@@ -14,7 +14,6 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <pthread.h>
 #include "codec21.h"
 #include "display.h"
 
@@ -27,86 +26,54 @@ typedef struct {
     Vector3D* output;
     volatile size_t current_line;
     volatile size_t current_pos;
+    // Statistics tracking
+    size_t total_bytes_received;
+    size_t total_pixels_decoded;
 } BufferPair;
 
 static BufferPair buffer_pairs[2];
 static volatile int active_pair = 0;
-volatile int kanban = 0;
-
-typedef struct {
-    int thread_id;
-} ThreadParams;
 
 void switch_buffer_pair(void) {
-    // Print the current line before switching buffers
+    // No need to print statistics here since they're printed before display
     printf("Switching buffers - current line: %zu\n", buffer_pairs[active_pair].current_line);
-    if (kanban) {
-        
-        active_pair = 1 - active_pair;
-        buffer_pairs[active_pair].current_line = 0;
-        buffer_pairs[active_pair].current_pos = 0;
-        memset(buffer_pairs[active_pair].input, 0, STRIDE * HEIGHT);
-        kanban = 0;
-    }
-}
-
-void* decoder_thread(void* arg) {
-    ThreadParams* params = (ThreadParams*)arg;
-    int thread_id = params->thread_id;
+    active_pair = 1 - active_pair;
     
-    while (1) {
-        BufferPair* current = &buffer_pairs[active_pair];
-        BufferPair* other = &buffer_pairs[1 - active_pair];
-        size_t line = thread_id;
-
-        while (line < HEIGHT) {
-            if (line < current->current_line) {
-                uint8_t* input_line = current->input + (line * STRIDE);
-                Vector3D* output_line = current->output + (line * WIDTH);
-                Vector3D* reference_line = other->output + (line * WIDTH);
-                
-                size_t pixels_decompressed = decode_blocks(input_line, STRIDE, output_line, reference_line);
-                
-                // Print information about decompression result
-                printf("Thread %d: Decoded line %zu (%zu pixels decompressed)\n", 
-                       thread_id, line, pixels_decompressed);
-                
-                line += 2;
-            }
-            
-            // Check if all lines are processed
-            // Only thread 0 should set kanban to avoid race conditions
-            if (thread_id == 0 && current->current_line >= HEIGHT) {
-                // If we've processed all lines and received all data for this frame
-                printf("All lines processed by decoder thread, displaying frame\n");
-                
-                // Display the current frame
-                display_frame(current->output);
-                
-                printf("Frame displayed, setting kanban\n");
-                kanban = 1;
-                // Allow some time for display before switching
-                usleep(16000); // ~16ms (60fps)
-            }
-            
-            // Small sleep to prevent CPU hogging
-            usleep(1000);
-        }
-    }
-    return NULL;
+    // Reset statistics for the new active buffer
+    buffer_pairs[active_pair].current_line = 0;
+    buffer_pairs[active_pair].current_pos = 0;
+    buffer_pairs[active_pair].total_bytes_received = 0;
+    buffer_pairs[active_pair].total_pixels_decoded = 0;
+    
+    memset(buffer_pairs[active_pair].input, 0, STRIDE * HEIGHT);
 }
 
 void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
-    // Print info about every received packet
-    printf("Received packet with length %zu bytes%s\n", 
-           packet_length,
-           (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') ? " (with line separator \\v)" : "");
-    
     BufferPair* current = &buffer_pairs[active_pair];
+    BufferPair* other = &buffer_pairs[1 - active_pair];
+    
+    // Track total bytes received for this frame (excluding frame end marker)
+    if (!(packet_length == 1 && packet_buffer[0] == '\t')) {
+        current->total_bytes_received += packet_length;
+    }
 
     if (packet_length == 1 && packet_buffer[0] == '\t') {
         printf("Frame end marker detected (\\t)\n");
-        switch_buffer_pair();
+        
+        // Display frame after all data is received
+        if (current->current_line >= HEIGHT) {
+            // Print collected statistics before displaying the frame
+            printf("Frame statistics: %zu compressed bytes received, %zu lines decoded, %zu pixels decompressed (%.2f bytes per pixel)\n", 
+                current->total_bytes_received,
+                current->current_line,
+                current->total_pixels_decoded,
+                (float)current->total_bytes_received / (current->total_pixels_decoded > 0 ? current->total_pixels_decoded : 1));
+            
+            printf("All lines processed, displaying frame\n");
+            display_frame(current->output);
+            printf("Frame displayed, switching buffers\n");
+            switch_buffer_pair();
+        }
         return;
     }
 
@@ -128,7 +95,17 @@ void process_udp_buffer(const uint8_t* packet_buffer, size_t packet_length) {
     }
 
     if (packet_length > 0 && packet_buffer[packet_length - 1] == '\v') {
-        // Line completed
+        // Line completed - decode it immediately
+        uint8_t* input_line = current->input + (current->current_line * STRIDE);
+        Vector3D* output_line = current->output + (current->current_line * WIDTH);
+        Vector3D* reference_line = other->output + (current->current_line * WIDTH);
+        
+        size_t pixels_decompressed = decode_blocks(input_line, STRIDE, output_line, reference_line);
+        
+        // Track pixels decoded for statistics without printing per-line info
+        current->total_pixels_decoded += pixels_decompressed;
+        
+        // Move to next line without printing per-line statistics
         current->current_line++;
         current->current_pos = 0;
     }
@@ -140,13 +117,10 @@ int main(void) {
         buffer_pairs[i].output = (Vector3D*)calloc(WIDTH * HEIGHT, sizeof(Vector3D));
         buffer_pairs[i].current_line = 0;
         buffer_pairs[i].current_pos = 0;
-    }
-
-    pthread_t decoder_threads[2];
-    ThreadParams thread_params[2] = {{0}, {1}};
-    
-    for (int i = 0; i < 2; i++) {
-        pthread_create(&decoder_threads[i], NULL, decoder_thread, &thread_params[i]);
+        
+        // Initialize statistics
+        buffer_pairs[i].total_bytes_received = 0;
+        buffer_pairs[i].total_pixels_decoded = 0;
     }
 
     // Initialize display
