@@ -7,6 +7,9 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 
+/*
+gcc -o a.out sender.c codec21.c -lX11 -lImlib2 && sleep 3 && ./a.out
+*/
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>

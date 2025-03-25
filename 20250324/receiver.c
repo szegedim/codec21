@@ -6,6 +6,9 @@
 // If not, see https://creativecommons.org/publicdomain/zero/1.0/legalcode.
 
 // Disclaimer: Patent rights reserved regardless of the license above
+/*
+gcc -o b.out receiver.c codec21.c display.c -lX11 -lImlib2 && ./b.out
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
