@@ -38,7 +38,6 @@ typedef enum {
     VERB_BIT3AND2 = 0xCC,
     VERB_BIT5AND4 = 0xDD,
     VERB_BIT7AND6 = 0xEE,
-    VERB_REMAINDER = 0xFF,
 } VerbList;
 
 // Function to find most frequent values in an array for lookup tables
@@ -404,51 +403,8 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         return output_pos;
     }
     printf("ERROR: No differences found\n");
-    // If we get here, there were no significant bit differences in any of the mask positions,
-    // but some other small differences might exist - encode a remainder block
-    output[output_pos++] = VERB_REMAINDER;
+    output[output_pos++] = VERB_SKIP;
     output[output_pos++] = input_size;
-    
-    uint8_t bit_buffer = 0;
-    int bit_pos = 0;
-    
-    for (size_t i = 0; i < input_size; i++) {
-        // Use direct input values for the lowest 2 bits (not differences)
-        uint8_t x_bits = input[i].x & 0x03;
-        uint8_t y_bits = input[i].y & 0x03;
-        uint8_t z_bits = input[i].z & 0x03;
-        
-        // Pack the lowest 2 bits
-        bit_buffer |= (x_bits << bit_pos);
-        bit_pos += 2;
-        if (bit_pos >= 8) {
-            output[output_pos++] = bit_buffer;
-            bit_buffer = 0;
-            bit_pos = 0;
-        }
-        
-        bit_buffer |= (y_bits << bit_pos);
-        bit_pos += 2;
-        if (bit_pos >= 8) {
-            output[output_pos++] = bit_buffer;
-            bit_buffer = 0;
-            bit_pos = 0;
-        }
-        
-        bit_buffer |= (z_bits << bit_pos);
-        bit_pos += 2;
-        if (bit_pos >= 8) {
-            output[output_pos++] = bit_buffer;
-            bit_buffer = 0;
-            bit_pos = 0;
-        }
-    }
-    
-    // Write any remaining bits in the buffer
-    if (bit_pos > 0) {
-        output[output_pos++] = bit_buffer;
-    }
-    
     return output_pos;
 }
 
@@ -463,7 +419,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         if (output_pos + max_block_length >= output_size) {
             printf("Overflow\n");
             break;
-        }/*
+        }
         // Skip zero difference blocks like h.264, h.265
         size_t zero_length = 0;
         while (zero_length < 200 && input_pos + zero_length < input_size && 
@@ -497,7 +453,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
             input_pos += 25;
             continue;
         }
-*/
+
         // Quantized encoding like JPEG-XS
         size_t fine_length = input_size - input_pos;
         if (fine_length > 25) {
@@ -641,47 +597,6 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     output[output_pos].x = (reference[output_pos].x & high_bits_mask) | x_bits;
                     output[output_pos].y = (reference[output_pos].y & high_bits_mask) | y_bits;
                     output[output_pos].z = (reference[output_pos].z & high_bits_mask) | z_bits;
-                    output_pos++;
-                }
-                break;
-            }
-            
-            case VERB_REMAINDER: {  // Additional remainder bits to carry over
-                uint8_t bit_buffer = 0;
-                int bits_remaining = 0;
-                
-                for (size_t i = 0; i < length; i++) {
-                    // Process X component
-                    if (bits_remaining < 2) {
-                        bit_buffer = input[input_pos++];
-                        bits_remaining = 8;
-                    }
-                    uint8_t x_bits = bit_buffer & 0x03;
-                    bit_buffer >>= 2;
-                    bits_remaining -= 2;
-                    
-                    // Process Y component
-                    if (bits_remaining < 2) {
-                        bit_buffer = input[input_pos++];
-                        bits_remaining = 8;
-                    }
-                    uint8_t y_bits = bit_buffer & 0x03;
-                    bit_buffer >>= 2;
-                    bits_remaining -= 2;
-                    
-                    // Process Z component
-                    if (bits_remaining < 2) {
-                        bit_buffer = input[input_pos++];
-                        bits_remaining = 8;
-                    }
-                    uint8_t z_bits = bit_buffer & 0x03;
-                    bit_buffer >>= 2;
-                    bits_remaining -= 2;
-                    
-                    // For remainder, we add the values to the reference
-                    output[output_pos].x = reference[output_pos].x + x_bits;
-                    output[output_pos].y = reference[output_pos].y + y_bits;
-                    output[output_pos].z = reference[output_pos].z + z_bits;
                     output_pos++;
                 }
                 break;
