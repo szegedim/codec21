@@ -21,6 +21,7 @@ gcc -o a.out standalone.c codec21.c display.c -lX11 -lImlib2 && ./a.out
 #include "codec21.h"
 #include "display.h"
 
+// Increasing it to verify lossless compression quality.
 #define TEST_DELAY 1
 
 typedef struct {
