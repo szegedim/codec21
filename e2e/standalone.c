@@ -21,7 +21,7 @@ gcc -o a.out standalone.c codec21.c display.c -lX11 -lImlib2 && ./a.out
 #include "codec21.h"
 #include "display.h"
 
-#define TEST_DELAY 100
+#define TEST_DELAY 1
 
 typedef struct {
     char *name;
@@ -141,6 +141,7 @@ void *process_images(void *arg) {
                 if (temp_buffer && reference_frame_copy) {
                     size_t total_bytes_compressed = 0;
                     size_t total_bytes_decompressed = 0;
+                    size_t total_compressible_size = 0;
                     
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
@@ -152,6 +153,9 @@ void *process_images(void *arg) {
                             // Calculate the starting position for this chunk
                             int start_pos = line * width + chunk * segment_width;
                             int current_segment_width = (chunk < 3) ? segment_width : width - (3 * segment_width);
+                            
+                            // Track the compressible size in bytes
+                            total_compressible_size += current_segment_width * sizeof(Vector3D);
                             
                             size_t chunk_compressed_size = encode_block(
                                 &image_data[start_pos],
@@ -174,9 +178,15 @@ void *process_images(void *arg) {
                         }
                     }
                     
-                    double compression_ratio = (double)total_bytes_decompressed / (double)total_bytes_compressed;
-                    printf("Frame statistics: %zu compressed bytes, %zu decompressed bytes, compression ratio: %.2f:1\n", 
-                           total_bytes_compressed, total_bytes_decompressed, compression_ratio);
+                    double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
+                    printf("Frame statistics:\n");
+                    printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
+                    printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
+                    printf("  Compressible size: %zu bytes\n", total_compressible_size);
+                    printf("  Compression ratio: %.2f:1\n", compression_ratio);
+                    if (total_compressible_size != total_bytes_decompressed) {
+                        exit(1);
+                    }
                     
                     // Display the frame after it's been fully decoded
                     display_frame(reference_frame);

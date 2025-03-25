@@ -466,8 +466,6 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
             output_pos += quantized_encoded;
             input_pos += fine_length;
             continue;
-        } else {
-            break;
         }
     }
     
