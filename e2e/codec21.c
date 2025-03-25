@@ -324,6 +324,9 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     const uint8_t bit_shifts[] = {6, 4, 2, 0};             // Shifts for each mask position
     const uint8_t verb_codes[] = {VERB_BIT7AND6, VERB_BIT5AND4, VERB_BIT3AND2, VERB_BIT1AND0};
     
+    // Track if we found any differences at all
+    bool any_differences = false;
+    
     // Examine each bit pair position
     for (int mask_idx = 0; mask_idx < 4; mask_idx++) {
         uint8_t bit_mask = bit_masks[mask_idx];
@@ -338,6 +341,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
             
             if (x_diff || y_diff || z_diff) {
                 has_difference = true;
+                any_differences = true;
             }
         }
         
@@ -393,8 +397,15 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
     }
     
-    // If we get here, there were no significant differences in any bit pair
-    // Let's encode a remainder block for any small differences
+    // If we get here and didn't find any differences, use a VERB_SKIP
+    if (!any_differences) {
+        output[output_pos++] = VERB_SKIP;
+        output[output_pos++] = input_size;
+        return output_pos;
+    }
+    printf("ERROR: No differences found\n");
+    // If we get here, there were no significant bit differences in any of the mask positions,
+    // but some other small differences might exist - encode a remainder block
     output[output_pos++] = VERB_REMAINDER;
     output[output_pos++] = input_size;
     
