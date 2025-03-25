@@ -156,65 +156,6 @@ DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_
     return has_medium ? DIFF_MEDIUM : DIFF_SMALL;
 }
 
-DiffRange get_diff_masked(const Vector3D* input, const Vector3D* reference, size_t length) {
-    bool has_small = false;
-    bool has_medium = false;
-    bool has_significant = false;
-    bool has_large = false;
-    bool has_remainder = false;
-    
-    for (size_t i = 0; i < length; i++) {
-        int dx = abs(input[i].x - reference[i].x);
-        int dy = abs(input[i].y - reference[i].y);
-        int dz = abs(input[i].z - reference[i].z);
-        uint8_t mx = (input[i].x ^ reference[i].x);
-        uint8_t my = (input[i].y ^ reference[i].y);
-        uint8_t mz = (input[i].z ^ reference[i].z);
-        
-        if ((mx & 0xc0) | (my & 0xc0) | (mz & 0xc0)) {
-            if (dx >= 0x40 || mx == dx) {
-                has_large = true;
-            } else {
-                has_remainder = true;
-            }
-        }
-        if ((mx & 0x30) | (my & 0x30) | (mz & 0x30)) {
-            if (dx >= 0x10 || mx == dx) {
-                has_significant = true;
-            } else {
-                has_remainder = true;
-            }
-        }
-        if ((mx & 0x0c) | (my & 0x0c) | (mz & 0x0c)) {
-            if (dx >= 0x04 || mx == dx) {
-                has_medium = true;
-            } else {
-                has_remainder = true;
-            }
-        }
-        if ((mx & 0x03) | (my & 0x03) | (mz & 0x03)) {
-            if (dx >= 0x01 || mx == dx) {
-                has_small = true;
-            } else {
-                has_remainder = true;
-            }   
-        }
-    }
-    if (has_large) {
-        return DIFF_LARGE;
-    }
-    if (has_significant) {
-        return DIFF_SIGNIFICANT;
-    }
-    if (has_medium) {
-        return DIFF_MEDIUM;
-    }
-    if (has_small) {
-        return DIFF_SMALL;
-    }
-    return DIFF_REMAINDER;
-}
-
 const size_t linear_length = 20;
 // Function to encode LUT blocks similar to the compression ratio to PNG
 size_t encode_linear(const Vector3D* input, const Vector3D* reference,
@@ -484,6 +425,22 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
     const uint8_t verb_codes[] = {VERB_BIT7AND6, VERB_BIT5AND4, VERB_BIT3AND2, VERB_BIT1AND0};
     const uint8_t high_bit_masks[] = {0x00, 0xC0, 0xF0, 0xFC}; // Masks for bits more significant than current mask
     
+    // Add dithering masks for lower bits with alternating patterns
+    const uint8_t dithering_masks_even[] = {
+        ~(high_bit_masks[0] | bit_masks[0]) & 0xAA,  // For VERB_BIT7AND6 (even positions)
+        ~(high_bit_masks[1] | bit_masks[1]) & 0xAA,  // For VERB_BIT5AND4 (even positions)
+        ~(high_bit_masks[2] | bit_masks[2]) & 0xAA,  // For VERB_BIT3AND2 (even positions)
+        ~(high_bit_masks[3] | bit_masks[3]) & 0xAA   // For VERB_BIT1AND0 (even positions)
+    };
+    
+    // Second set of dithering masks using 0x55 pattern for odd positions
+    const uint8_t dithering_masks_odd[] = {
+        ~(high_bit_masks[0] | bit_masks[0]) & 0x55,  // For VERB_BIT7AND6 (odd positions)
+        ~(high_bit_masks[1] | bit_masks[1]) & 0x55,  // For VERB_BIT5AND4 (odd positions)
+        ~(high_bit_masks[2] | bit_masks[2]) & 0x55,  // For VERB_BIT3AND2 (odd positions)
+        ~(high_bit_masks[3] | bit_masks[3]) & 0x55   // For VERB_BIT1AND0 (odd positions)
+    };
+    
     while (input_pos < input_size) {
         uint8_t block_type = input[input_pos++];
         uint8_t length = input[input_pos++];
@@ -562,6 +519,11 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                 int bits_remaining = 0;
                 
                 for (size_t i = 0; i < length; i++) {
+                    // Select the appropriate dithering mask based on position
+                    uint8_t dithering_mask = (output_pos % 2 == 0) ? 
+                        dithering_masks_even[mask_idx] : 
+                        dithering_masks_odd[mask_idx];
+                    
                     // Process X component
                     if (bits_remaining < 2) {
                         bit_buffer = input[input_pos++];
@@ -592,10 +554,10 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     // Reconstruct vectors: 
                     // 1. Keep only high bits from reference (bits to the left of the mask)
                     // 2. Apply our mask bits
-                    // 3. Less significant bits (to the right of the mask) become zero
-                    output[output_pos].x = (reference[output_pos].x & high_bits_mask) | x_bits;
-                    output[output_pos].y = (reference[output_pos].y & high_bits_mask) | y_bits;
-                    output[output_pos].z = (reference[output_pos].z & high_bits_mask) | z_bits;
+                    // 3. Apply alternating dithering pattern to less significant bits
+                    output[output_pos].x = (reference[output_pos].x & high_bits_mask) | x_bits | dithering_mask;
+                    output[output_pos].y = (reference[output_pos].y & high_bits_mask) | y_bits | dithering_mask;
+                    output[output_pos].z = (reference[output_pos].z & high_bits_mask) | z_bits | dithering_mask;
                     output_pos++;
                 }
                 break;
