@@ -250,12 +250,12 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
     return 0;
 }
 
+const size_t lut_size = 25;
 // Function to encode LUT blocks similar to the compression ratio to GIF
 size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
     size_t output_pos = 0;
     size_t input_pos = 0;
-    size_t lut_size = 25;
     
     if (input_pos + lut_size <= input_size) {
         if (has_lut_differences(&input[input_pos], &reference[input_pos], lut_size)) {
@@ -438,7 +438,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
 
         // Linear encoding for run-length and slopes like PNG
         size_t linear_encoded = encode_linear(&input[input_pos], &reference[input_pos],
-                                        input_size - input_pos, &output[output_pos]);
+                                        linear_length, &output[output_pos]);
         if (linear_encoded > 0) {
             output_pos += linear_encoded;
             input_pos += linear_length;
@@ -450,15 +450,16 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
                                         input_size - input_pos, &output[output_pos]);
         if (lut_encoded > 0) {
             output_pos += lut_encoded;
-            input_pos += 25;
+            input_pos += lut_size;
             continue;
         }
 
-        // Quantized encoding like JPEG-XS
         size_t fine_length = input_size - input_pos;
         if (fine_length > 25) {
             fine_length = 25;
         }
+
+        // Quantized encoding like JPEG-XS
         size_t quantized_encoded = encode_quantized(&input[input_pos], &reference[input_pos],
                                                     fine_length, &output[output_pos]);
         if (quantized_encoded > 0) {
