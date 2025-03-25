@@ -32,12 +32,12 @@ uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
 
 typedef enum {
     VERB_SKIP = 0x00,
-    VERB_LINEAR = 0x55,
+    VERB_LINEAR = 123,
     VERB_LOOKUP = 0xAA,
-    VERB_BIT1AND0 = 0xBB,
-    VERB_BIT3AND2 = 0xCC,
-    VERB_BIT5AND4 = 0xDD,
-    VERB_BIT7AND6 = 0xEE,
+    VERB_BIT1AND0 = 0x03,
+    VERB_BIT3AND2 = 0x0c,
+    VERB_BIT5AND4 = 0x30,
+    VERB_BIT7AND6 = 0xC0,
 } VerbList;
 
 // Function to find most frequent values in an array for lookup tables
