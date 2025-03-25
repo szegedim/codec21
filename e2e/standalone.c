@@ -7,6 +7,10 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 
+/*
+gcc -o a.out standalone.c codec21.c display.c -lX11 -lImlib2 && ./a.out
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

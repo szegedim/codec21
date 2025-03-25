@@ -16,6 +16,10 @@
 
 // Disclaimer: Patent rights reserved regardless of the license above
 
+/*
+gcc -o a.out test.c codec21.c && ./a.out
+*/
+
 int tests();
 
 int main(int argc, char *argv[]) {
