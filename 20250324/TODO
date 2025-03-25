@@ -1,0 +1,7 @@
+
+Verify codec accuracy
+Fix UDP integrity
+Send timestamps as audio
+Optimize performance
+Dithering on quantized data
+Configurable low pass filter to match H.264 0.2-2 bits per pixel
