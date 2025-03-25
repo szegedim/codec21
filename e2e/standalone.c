@@ -140,6 +140,7 @@ void *process_images(void *arg) {
                 
                 if (temp_buffer && reference_frame_copy) {
                     size_t total_bytes_compressed = 0;
+                    size_t total_bytes_decompressed = 0;
                     
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
@@ -162,16 +163,20 @@ void *process_images(void *arg) {
                             
                             total_bytes_compressed += chunk_compressed_size;
                             
-                            decode_blocks(
+                            size_t chunk_decompressed_size = decode_blocks(
                                 temp_buffer,
                                 chunk_compressed_size,
                                 &reference_frame[start_pos],
                                 &reference_frame_copy[start_pos]
                             );
+                            
+                            total_bytes_decompressed += chunk_decompressed_size * sizeof(Vector3D);
                         }
                     }
                     
-                    printf("Frame statistics: %zu compressed bytes total\n", total_bytes_compressed);
+                    double compression_ratio = (double)total_bytes_decompressed / (double)total_bytes_compressed;
+                    printf("Frame statistics: %zu compressed bytes, %zu decompressed bytes, compression ratio: %.2f:1\n", 
+                           total_bytes_compressed, total_bytes_decompressed, compression_ratio);
                     
                     // Display the frame after it's been fully decoded
                     display_frame(reference_frame);
