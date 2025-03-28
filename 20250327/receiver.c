@@ -123,6 +123,22 @@ void *receive_and_process(void *arg) {
             continue;  // Skip to next packet
         }
         
+        // Check if this is a line ending marker
+        if (packet_size == 1 && buffer[0] == '\v') {
+            // Calculate if we're at the end of a line (after 4 chunks)
+            int expected_segment_at_line_end = (segments_received % 4 == 0);
+            
+            if (!expected_segment_at_line_end) {
+                printf("Line ending marker received out of sequence, resetting to wait for new frame\n");
+                // Reset and wait for a new frame
+                segments_received = 0;
+                waiting_for_terminator = 1;
+            } else {
+                printf("Line ending marker received correctly\n");
+            }
+            continue;  // Skip to next packet
+        }
+        
         // If we're waiting for a terminator, ignore all other packets
         if (waiting_for_terminator) {
             continue;

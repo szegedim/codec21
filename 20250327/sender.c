@@ -192,6 +192,12 @@ void *process_images(void *arg) {
                             );
                             
                             total_bytes_decompressed += chunk_decompressed_size * sizeof(Vector3D);
+                            
+                            // If this is the last chunk of the line, send a line ending marker
+                            if (chunk == 3) {
+                                uint8_t line_marker = '\v';  // Vertical tab as line ending marker
+                                send_udp(&line_marker, 1);
+                            }
                         }
                     }
                     
