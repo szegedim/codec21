@@ -1,0 +1,4 @@
+*.png
+.vscode
+.vscode/settings.json
+*.out
