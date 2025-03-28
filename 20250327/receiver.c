@@ -81,6 +81,8 @@ void *receive_and_process(void *arg) {
     
     printf("Ready to receive. Each frame consists of %d segments\n", segments_per_frame);
     
+    int waiting_for_terminator = 1;  // Start by waiting for a terminator
+    
     while (running) {
         // Receive a UDP packet
         int packet_size = recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0,
@@ -88,6 +90,42 @@ void *receive_and_process(void *arg) {
         
         if (packet_size <= 0) {
             continue;  // Skip empty packets
+        }
+        
+        // Check if this is a terminator packet
+        if (packet_size == 1 && buffer[0] == '\t') {
+            if (!waiting_for_terminator) {
+                // We've reached the end of a frame
+                printf("Frame terminator received (%zu bytes decompressed)\n", total_bytes_decompressed);
+                
+                // Only display the frame if we've received the expected amount of data
+                if (total_bytes_decompressed >= WIDTH * HEIGHT * 3) {
+                    printf("Complete frame received, displaying\n");
+                    // Display the fully decoded frame
+                    display_frame(reference_frame);
+                } else {
+                    printf("Incomplete frame received, discarding (%zu bytes of %d expected)\n", 
+                           total_bytes_decompressed, WIDTH * HEIGHT * 3);
+                }
+                
+                // Reset for next frame and wait for next terminator
+                segments_received = 0;
+                waiting_for_terminator = 1;
+            } else {
+                // We received a terminator when already waiting - this means we can start receiving a new frame
+                waiting_for_terminator = 0;
+                
+                // Reset for new frame
+                memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
+                total_bytes_decompressed = 0;
+                segments_received = 0;
+            }
+            continue;  // Skip to next packet
+        }
+        
+        // If we're waiting for a terminator, ignore all other packets
+        if (waiting_for_terminator) {
+            continue;
         }
         
         // If this is the first segment of a new frame, make a copy of the reference frame
@@ -116,17 +154,6 @@ void *receive_and_process(void *arg) {
         
         total_bytes_decompressed += chunk_decompressed_size * sizeof(Vector3D);
         segments_received++;
-        
-        // If we've received a complete frame, display it
-        if (segments_received % segments_per_frame == 0) {
-            printf("Complete frame received (%zu bytes decompressed)\n", total_bytes_decompressed);
-            
-            // Display the fully decoded frame
-            display_frame(reference_frame);
-            
-            // Reset for next frame
-            segments_received = 0;
-        }
     }
     
     // Clean up

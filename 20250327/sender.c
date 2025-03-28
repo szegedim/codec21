@@ -195,6 +195,10 @@ void *process_images(void *arg) {
                         }
                     }
                     
+                    // Send a terminating tab character to signal end of frame
+                    uint8_t terminator = '\t';
+                    send_udp(&terminator, 1);
+                    
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
                     printf("Frame statistics:\n");
                     printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
