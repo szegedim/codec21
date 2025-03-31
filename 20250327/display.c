@@ -17,8 +17,8 @@
 #include "codec21.h"
 #include "display.h"
 
-#define WINDOW_WIDTH 640
-#define WINDOW_HEIGHT 640
+#define WINDOW_WIDTH 960
+#define WINDOW_HEIGHT 540
 
 static Display *display = NULL;
 static Window window;

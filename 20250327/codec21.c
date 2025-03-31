@@ -15,6 +15,10 @@
 #include <float.h>
 #include <stdio.h>
 
+const size_t linear_length = 20;
+const size_t quantized_size = 5;
+const size_t lut_size = 50;
+
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
     uint8_t x;
@@ -118,9 +122,9 @@ bool is_linear_fit(Vector3D points[], int count, int tolerance) {
 bool has_lut_differences(const Vector3D* input, const Vector3D* reference, 
                          size_t length) {
     for (size_t i = 0; i < length; i++) {
-        int dx = abs(input[i].x - reference[i].x);
-        int dy = abs(input[i].y - reference[i].y);
-        int dz = abs(input[i].z - reference[i].z);
+        int dx = abs((int)(input[i].x) - (int)(reference[i].x));
+        int dy = abs((int)(input[i].y) - (int)(reference[i].y));
+        int dz = abs((int)(input[i].z) - (int)(reference[i].z));
         if (dx > 32 || dy > 32 || dz > 32) {
             return true;
         }
@@ -141,9 +145,9 @@ DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_
     bool has_medium = false;
     
     for (size_t i = 0; i < length; i++) {
-        int dx = abs(input[i].x - reference[i].x);
-        int dy = abs(input[i].y - reference[i].y);
-        int dz = abs(input[i].z - reference[i].z);
+        int dx = abs((int)(input[i].x) - (int)(reference[i].x));
+        int dy = abs((int)(input[i].y) - (int)(reference[i].y));
+        int dz = abs((int)(input[i].z) - (int)(reference[i].z));
         
         if (dx >= 16 || dy >= 16 || dz >= 16) {
             return DIFF_LARGE;
@@ -156,7 +160,6 @@ DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_
     return has_medium ? DIFF_MEDIUM : DIFF_SMALL;
 }
 
-const size_t linear_length = 20;
 // Function to encode LUT blocks similar to the compression ratio to PNG
 size_t encode_linear(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
@@ -170,12 +173,8 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
         check_points[1] = input[input_pos + linear_length / 4];
         check_points[2] = input[input_pos + linear_length / 2];
         check_points[3] = input[input_pos + linear_length * 3 / 4];
-            
-        DiffRange range = get_diff_range(&input[input_pos], 
-                            &reference[input_pos], linear_length);
 
-
-        if (range == DIFF_LARGE && is_linear_fit(check_points, 5, 2)) {
+        if (is_linear_fit(check_points, 5, 2)) {
             output[output_pos++] = VERB_LINEAR;  // Linear block marker
             const int length = linear_length;
             output[output_pos++] = length;    // Fixed length
@@ -191,7 +190,6 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
     return 0;
 }
 
-const size_t lut_size = 25;
 // Function to encode LUT blocks similar to the compression ratio to GIF
 size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
@@ -396,8 +394,8 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
 
         size_t fine_length = input_size - input_pos;
-        if (fine_length > 25) {
-            fine_length = 25;
+        if (fine_length > quantized_size) {
+            fine_length = quantized_size;
         }
 
         // Quantized encoding like JPEG-XS
