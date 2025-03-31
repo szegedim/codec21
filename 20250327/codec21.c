@@ -16,7 +16,7 @@
 #include <stdio.h>
 
 const size_t linear_length = 20;
-const size_t quantized_size = 5;
+const size_t quantized_size = 8;
 const size_t lut_size = 50;
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
