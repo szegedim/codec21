@@ -113,7 +113,7 @@ void *process_images(void *arg) {
         // Modified loop to process each file for eight frames before moving to the next
         for (int i = 0; i < file_count && running; i++) {
             // Load the image once
-            printf("Loading file %s\n", files[i].name);
+            //printf("Loading file %s\n", files[i].name);
             Imlib_Image img = imlib_load_image(files[i].name);
             if (!img) {
                 printf("Failed to load image %s, skipping\n", files[i].name);
@@ -131,7 +131,7 @@ void *process_images(void *arg) {
             
             // Process the same image for 8 frames
             for (int frame = 0; frame < TEST_DELAY && running; frame++) {
-                printf("Processing %s (frame %d of 8)\n", files[i].name, frame + 1);
+                //printf("Processing %s (frame %d of 8)\n", files[i].name, frame + 1);
                 
                 int width = WIDTH;
                 int height = HEIGHT;
@@ -180,18 +180,18 @@ void *process_images(void *arg) {
                     }
                     
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
-                    printf("Frame statistics:\n");
-                    printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
-                    printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
-                    printf("  Compressible size: %zu bytes\n", total_compressible_size);
-                    printf("  Compression ratio: %.2f:1\n", compression_ratio);
+                    // printf("Frame statistics:\n");
+                    // printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
+                    // printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
+                    // printf("  Compressible size: %zu bytes\n", total_compressible_size);
+                    // printf("  Compression ratio: %.2f:1\n", compression_ratio);
                     if (total_compressible_size != total_bytes_decompressed) {
                         exit(1);
                     }
                     
                     // Display the frame after it's been fully decoded
                     display_frame(reference_frame);
-                    printf("Frame displayed\n");
+                    //printf("Frame displayed\n");
                     
                     // Free temporary buffers
                     free(reference_frame_copy);
