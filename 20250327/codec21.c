@@ -17,7 +17,7 @@
 
 const size_t linear_length = 20;
 const size_t quantized_size = 8;
-const size_t lut_size = 50;
+const size_t lut_size = 30; // Optimal 50
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
@@ -35,14 +35,19 @@ uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
 }
 
 typedef enum {
-    VERB_SKIP = 0x00,
-    VERB_LINEAR = 123,
-    VERB_LOOKUP = 0xAA,
-    VERB_BIT1AND0 = 0x03,
-    VERB_BIT3AND2 = 0x0c,
-    VERB_BIT5AND4 = 0x30,
-    VERB_BIT7AND6 = 0xC0,
+    VERB_SKIP =    0b000 << 5,  // 0x00
+    VERB_LINEAR =  0b001 << 5,  // 0x20
+    VERB_LOOKUP =  0b010 << 5,  // 0x40
+    VERB_BIT7AND6 = 0b011 << 5, // 0x60
+    VERB_BIT5AND4 = 0b100 << 5, // 0x80
+    VERB_BIT3AND2 = 0b101 << 5, // 0xA0
+    VERB_BIT1AND0 = 0b110 << 5, // 0xC0
 } VerbList;
+
+// Masks for extracting verb and length
+#define VERB_MASK 0xE0    // Bits 7-5
+#define LENGTH_MASK 0x1F  // Bits 4-0
+#define MAX_BLOCK_LENGTH 31  // Maximum length that can be encoded in 5 bits
 
 // Function to find most frequent values in an array for lookup tables
 int find_most_frequent(const Vector3D* data, size_t length,
@@ -175,9 +180,10 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
         check_points[3] = input[input_pos + linear_length * 3 / 4];
 
         if (is_linear_fit(check_points, 5, 2)) {
-            output[output_pos++] = VERB_LINEAR;  // Linear block marker
+            // Pack verb and length into a single byte
             const int length = linear_length;
-            output[output_pos++] = length;    // Fixed length
+            output[output_pos++] = VERB_LINEAR | (length & LENGTH_MASK);
+            
             memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
             output_pos += sizeof(Vector3D);
             memcpy(&output[output_pos], &input[input_pos + length - 1], sizeof(Vector3D));
@@ -190,25 +196,27 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
     return 0;
 }
 
-// Function to encode LUT blocks similar to the compression ratio to GIF
+// Update encode_lut function
 size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
     size_t output_pos = 0;
     size_t input_pos = 0;
     
-    if (input_pos + lut_size <= input_size) {
-        if (has_lut_differences(&input[input_pos], &reference[input_pos], lut_size)) {
+    // Ensure lut_size fits in our 5-bit length field
+    size_t block_length = (lut_size <= MAX_BLOCK_LENGTH) ? lut_size : MAX_BLOCK_LENGTH;
+    
+    if (input_pos + block_length <= input_size) {
+        if (has_lut_differences(&input[input_pos], &reference[input_pos], block_length)) {
             // Create LUT with 4 most frequent 
-
             Vector3D lut[4];
-            size_t size = find_most_frequent(&input[input_pos], lut_size, lut, 4);
-            if (size != lut_size) {
+            size_t size = find_most_frequent(&input[input_pos], block_length, lut, 4);
+            if (size != block_length) {
                 return output_pos;
             }
 
-            output[output_pos++] = VERB_LOOKUP;  // LUT block marker
-            output[output_pos++] = lut_size;    // Block length
-
+            // Pack verb and length into a single byte
+            output[output_pos++] = VERB_LOOKUP | (block_length & LENGTH_MASK);
+            
             memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
             output_pos += sizeof(Vector3D) * 4;
     
@@ -216,12 +224,12 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
             uint8_t index_buffer = 0;
             int bit_pos = 0;
     
-            for (size_t i = 0; i < lut_size; i++) {
+            for (size_t i = 0; i < block_length; i++) {
                 // Find closest LUT entry
                 uint32_t min_dist = UINT32_MAX;
                 uint8_t best_index = 0;
         
-                for (uint8_t j = 0; j < 4; j++) {  // Changed from 16 to 4
+                for (uint8_t j = 0; j < 4; j++) {
                     uint32_t dist = vector_distance_sq(input[input_pos + i], lut[j]);
                     if (dist < min_dist) {
                         min_dist = dist;
@@ -229,9 +237,9 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                     }
                 }
         
-                // Pack 2-bit indices (changed from 4-bit)
+                // Pack 2-bit indices
                 index_buffer |= (best_index << bit_pos);
-                bit_pos += 2;  // Changed from 4 to 2
+                bit_pos += 2;
         
                 if (bit_pos == 8) {
                     output[output_pos++] = index_buffer;
@@ -245,14 +253,15 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                 output[output_pos++] = index_buffer;
             }
     
-            input_pos += lut_size;
+            input_pos += block_length;
+            return output_pos;
         }
     }
     
     return output_pos;
 }
 
-// Function to encode quantized blocks based on bit pair differences
+// Update encode_quantized function
 size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
                        size_t input_size, uint8_t* output) {
     size_t output_pos = 0;
@@ -261,6 +270,9 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     const uint8_t bit_masks[] = {0xC0, 0x30, 0x0C, 0x03};  // Masks for bit pairs
     const uint8_t bit_shifts[] = {6, 4, 2, 0};             // Shifts for each mask position
     const uint8_t verb_codes[] = {VERB_BIT7AND6, VERB_BIT5AND4, VERB_BIT3AND2, VERB_BIT1AND0};
+    
+    // Ensure block length fits in our 5-bit field
+    size_t block_length = (input_size <= MAX_BLOCK_LENGTH) ? input_size : MAX_BLOCK_LENGTH;
     
     // Track if we found any differences at all
     bool any_differences = false;
@@ -272,7 +284,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         
         // Check if there's at least one bit difference at this position
         bool has_difference = false;
-        for (size_t i = 0; i < input_size && !has_difference; i++) {
+        for (size_t i = 0; i < block_length && !has_difference; i++) {
             uint8_t x_diff = (input[i].x & bit_mask) ^ (reference[i].x & bit_mask);
             uint8_t y_diff = (input[i].y & bit_mask) ^ (reference[i].y & bit_mask);
             uint8_t z_diff = (input[i].z & bit_mask) ^ (reference[i].z & bit_mask);
@@ -284,18 +296,15 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
         
         if (has_difference) {
-            // Write the verb code for this bit pair position
-            output[output_pos++] = verb_codes[mask_idx];
-            
-            // Write the block length
-            output[output_pos++] = input_size;
+            // Pack verb and length into a single byte
+            output[output_pos++] = verb_codes[mask_idx] | (block_length & LENGTH_MASK);
             
             // Pack the bits into a bit stream
             uint8_t bit_buffer = 0;
             int bit_pos = 0;
             
-            for (size_t i = 0; i < input_size; i++) {
-                // Extract the bit pairs for each component (from input directly, not XORed)
+            for (size_t i = 0; i < block_length; i++) {
+                // Extract the bit pairs for each component
                 uint8_t x_bits = (input[i].x & bit_mask) >> bit_shift;
                 uint8_t y_bits = (input[i].y & bit_mask) >> bit_shift;
                 uint8_t z_bits = (input[i].z & bit_mask) >> bit_shift;
@@ -331,19 +340,18 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
                 output[output_pos++] = bit_buffer;
             }
             
-            return output_pos;  // Return after finding and encoding the first bit pair with differences
+            return output_pos;
         }
     }
     
     // If we get here and didn't find any differences, use a VERB_SKIP
     if (!any_differences) {
-        output[output_pos++] = VERB_SKIP;
-        output[output_pos++] = input_size;
+        output[output_pos++] = VERB_SKIP | (block_length & LENGTH_MASK);
         return output_pos;
     }
+    
     printf("ERROR: No differences found\n");
-    output[output_pos++] = VERB_SKIP;
-    output[output_pos++] = input_size;
+    output[output_pos++] = VERB_SKIP | (block_length & LENGTH_MASK);
     return output_pos;
 }
 
@@ -361,7 +369,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
         // Skip zero difference blocks like h.264, h.265
         size_t zero_length = 0;
-        while (zero_length < 200 && input_pos + zero_length < input_size && 
+        while (zero_length < MAX_BLOCK_LENGTH && input_pos + zero_length < input_size && 
                memcmp(&input[input_pos + zero_length], 
                       &reference[input_pos + zero_length],
                       sizeof(Vector3D)) == 0) {
@@ -369,8 +377,8 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
         
         if (zero_length > 0) {
-            output[output_pos++] = VERB_SKIP;
-            output[output_pos++] = zero_length;
+            // Pack verb and length into a single byte
+            output[output_pos++] = VERB_SKIP | (zero_length & LENGTH_MASK);
             input_pos += zero_length;
             continue;
         }
@@ -389,13 +397,16 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
                                         input_size - input_pos, &output[output_pos]);
         if (lut_encoded > 0) {
             output_pos += lut_encoded;
-            input_pos += lut_size;
+            input_pos += (lut_size <= MAX_BLOCK_LENGTH) ? lut_size : MAX_BLOCK_LENGTH;
             continue;
         }
 
         size_t fine_length = input_size - input_pos;
         if (fine_length > quantized_size) {
             fine_length = quantized_size;
+        }
+        if (fine_length > MAX_BLOCK_LENGTH) {
+            fine_length = MAX_BLOCK_LENGTH;
         }
 
         // Quantized encoding like JPEG-XS
@@ -440,8 +451,9 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
     };
     
     while (input_pos < input_size) {
-        uint8_t block_type = input[input_pos++];
-        uint8_t length = input[input_pos++];
+        uint8_t header = input[input_pos++];
+        uint8_t block_type = header & VERB_MASK;
+        uint8_t length = header & LENGTH_MASK;
         
         switch (block_type) {
             case VERB_SKIP: {  // Skip block
@@ -549,10 +561,7 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
                     bit_buffer >>= 2;
                     bits_remaining -= 2;
                     
-                    // Reconstruct vectors: 
-                    // 1. Keep only high bits from reference (bits to the left of the mask)
-                    // 2. Apply our mask bits
-                    // 3. Apply alternating dithering pattern to less significant bits
+                    // Reconstruct vectors
                     output[output_pos].x = (reference[output_pos].x & high_bits_mask) | x_bits | dithering_mask;
                     output[output_pos].y = (reference[output_pos].y & high_bits_mask) | y_bits | dithering_mask;
                     output[output_pos].z = (reference[output_pos].z & high_bits_mask) | z_bits | dithering_mask;
