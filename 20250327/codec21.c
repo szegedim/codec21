@@ -45,9 +45,46 @@ typedef enum {
 } VerbList;
 
 // Masks for extracting verb and length
-#define VERB_MASK 0xE0    // Bits 7-5
-#define LENGTH_MASK 0x1F  // Bits 4-0
-#define MAX_BLOCK_LENGTH 31  // Maximum length that can be encoded in 5 bits
+#define VERB_MASK 0xE0      // Bits 7-5
+#define LENGTH_FLAG 0x10    // Bit 4 - indicates if extended length is used
+#define SHORT_LENGTH_MASK 0x0F  // Bits 3-0 for short length
+#define EXT_LENGTH_BITS 8   // Number of bits in the extension byte
+#define MAX_SHORT_LENGTH 15  // Maximum length that can be encoded in 4 bits
+#define MAX_BLOCK_LENGTH 4095  // Maximum length that can be encoded in 12 bits (4+8)
+
+// Function to write a block header with length
+size_t start_block(uint8_t verb, size_t length, uint8_t* output) {
+    size_t bytes_written = 1;
+    
+    if (length <= MAX_SHORT_LENGTH) {
+        // Use short format (4 bits)
+        output[0] = verb | (length & SHORT_LENGTH_MASK);
+    } else {
+        // Use extended format (4+8 = 12 bits)
+        output[0] = verb | LENGTH_FLAG | (length & SHORT_LENGTH_MASK);
+        output[1] = (length >> 4) & 0xFF;
+        bytes_written = 2;
+    }
+    
+    return bytes_written;
+}
+
+// Function to read a block header with length
+size_t open_block(const uint8_t* input, uint8_t* verb, size_t* length) {
+    size_t bytes_read = 1;
+    *verb = input[0] & VERB_MASK;
+    
+    if (input[0] & LENGTH_FLAG) {
+        // Extended length format
+        *length = (input[0] & SHORT_LENGTH_MASK) | ((size_t)input[1] << 4);
+        bytes_read = 2;
+    } else {
+        // Short length format
+        *length = input[0] & SHORT_LENGTH_MASK;
+    }
+    
+    return bytes_read;
+}
 
 // Function to find most frequent values in an array for lookup tables
 int find_most_frequent(const Vector3D* data, size_t length,
@@ -180,15 +217,14 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
         check_points[3] = input[input_pos + linear_length * 3 / 4];
 
         if (is_linear_fit(check_points, 5, 2)) {
-            // Pack verb and length into a single byte
-            const int length = linear_length;
-            output[output_pos++] = VERB_LINEAR | (length & LENGTH_MASK);
+            // Write block header with verb and length
+            output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
             
             memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
             output_pos += sizeof(Vector3D);
-            memcpy(&output[output_pos], &input[input_pos + length - 1], sizeof(Vector3D));
+            memcpy(&output[output_pos], &input[input_pos + linear_length - 1], sizeof(Vector3D));
             output_pos += sizeof(Vector3D);
-            input_pos += length;
+            input_pos += linear_length;
             return output_pos;
         }
     }
@@ -202,20 +238,20 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
     size_t output_pos = 0;
     size_t input_pos = 0;
     
-    // Ensure lut_size fits in our 5-bit length field
+    // Ensure lut_size fits in our length field
     size_t block_length = (lut_size <= MAX_BLOCK_LENGTH) ? lut_size : MAX_BLOCK_LENGTH;
     
     if (input_pos + block_length <= input_size) {
         if (has_lut_differences(&input[input_pos], &reference[input_pos], block_length)) {
-            // Create LUT with 4 most frequent 
+            // Create LUT with 4 most frequent
             Vector3D lut[4];
             size_t size = find_most_frequent(&input[input_pos], block_length, lut, 4);
             if (size != block_length) {
                 return output_pos;
             }
 
-            // Pack verb and length into a single byte
-            output[output_pos++] = VERB_LOOKUP | (block_length & LENGTH_MASK);
+            // Write block header with verb and length
+            output_pos += start_block(VERB_LOOKUP, block_length, &output[output_pos]);
             
             memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
             output_pos += sizeof(Vector3D) * 4;
@@ -271,7 +307,7 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     const uint8_t bit_shifts[] = {6, 4, 2, 0};             // Shifts for each mask position
     const uint8_t verb_codes[] = {VERB_BIT7AND6, VERB_BIT5AND4, VERB_BIT3AND2, VERB_BIT1AND0};
     
-    // Ensure block length fits in our 5-bit field
+    // Ensure block length fits in our length field
     size_t block_length = (input_size <= MAX_BLOCK_LENGTH) ? input_size : MAX_BLOCK_LENGTH;
     
     // Track if we found any differences at all
@@ -296,8 +332,8 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
         
         if (has_difference) {
-            // Pack verb and length into a single byte
-            output[output_pos++] = verb_codes[mask_idx] | (block_length & LENGTH_MASK);
+            // Write block header with verb and length
+            output_pos += start_block(verb_codes[mask_idx], block_length, &output[output_pos]);
             
             // Pack the bits into a bit stream
             uint8_t bit_buffer = 0;
@@ -346,12 +382,12 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     
     // If we get here and didn't find any differences, use a VERB_SKIP
     if (!any_differences) {
-        output[output_pos++] = VERB_SKIP | (block_length & LENGTH_MASK);
+        output_pos += start_block(VERB_SKIP, block_length, &output[output_pos]);
         return output_pos;
     }
     
     printf("ERROR: No differences found\n");
-    output[output_pos++] = VERB_SKIP | (block_length & LENGTH_MASK);
+    output_pos += start_block(VERB_SKIP, block_length, &output[output_pos]);
     return output_pos;
 }
 
@@ -377,8 +413,8 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
         }
         
         if (zero_length > 0) {
-            // Pack verb and length into a single byte
-            output[output_pos++] = VERB_SKIP | (zero_length & LENGTH_MASK);
+            // Write block header with verb and length
+            output_pos += start_block(VERB_SKIP, zero_length, &output[output_pos]);
             input_pos += zero_length;
             continue;
         }
@@ -451,9 +487,11 @@ size_t decode_blocks(const uint8_t* input, size_t input_size,
     };
     
     while (input_pos < input_size) {
-        uint8_t header = input[input_pos++];
-        uint8_t block_type = header & VERB_MASK;
-        uint8_t length = header & LENGTH_MASK;
+        uint8_t block_type;
+        size_t length;
+        
+        // Read block header (verb and length)
+        input_pos += open_block(&input[input_pos], &block_type, &length);
         
         switch (block_type) {
             case VERB_SKIP: {  // Skip block
