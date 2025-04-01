@@ -180,11 +180,11 @@ void *process_images(void *arg) {
                     }
                     
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
-                    // printf("Frame statistics:\n");
-                    // printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
-                    // printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
-                    // printf("  Compressible size: %zu bytes\n", total_compressible_size);
-                    // printf("  Compression ratio: %.2f:1\n", compression_ratio);
+                    printf("Frame statistics:\n");
+                    printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
+                    printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
+                    printf("  Compressible size: %zu bytes\n", total_compressible_size);
+                    printf("  Compression ratio: %.2f:1\n", compression_ratio);
                     if (total_compressible_size != total_bytes_decompressed) {
                         exit(1);
                     }
