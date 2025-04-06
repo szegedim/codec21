@@ -143,7 +143,7 @@ int find_most_frequent(const Vector3D* data, size_t length,
 }
 
 // Function to check if points fit a linear line within tolerance
-bool is_linear_fit(Vector3D points[], int count, int tolerance) {
+bool is_linear_fit(const Vector3D points[], int count, int tolerance) {
     if (count < 3) return false;
     
     // Check each dimension separately
@@ -157,7 +157,9 @@ bool is_linear_fit(Vector3D points[], int count, int tolerance) {
         for (int i = 1; i < count-1; i++) {
             double expected = first + slope * i;
             double actual = values[i * sizeof(Vector3D) + dim];
-            if (abs(actual - expected) > tolerance) return false;
+            if (abs(actual - expected) > tolerance){
+                return false;
+            }
         }
     }
     return true;
@@ -212,14 +214,7 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
     size_t input_pos = 0;
     
     if (input_pos + linear_length < input_size) {
-        Vector3D check_points[5];
-        check_points[0] = input[input_pos];
-        check_points[4] = input[input_pos + linear_length];
-        check_points[1] = input[input_pos + linear_length / 4];
-        check_points[2] = input[input_pos + linear_length / 2];
-        check_points[3] = input[input_pos + linear_length * 3 / 4];
-
-        if (is_linear_fit(check_points, 5, linear_tolerance)) {
+        if (is_linear_fit(&input[input_pos], linear_length, linear_tolerance)) {
             // Write block header with verb and length
             output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
             
