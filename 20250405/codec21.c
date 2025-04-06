@@ -18,6 +18,7 @@
 const size_t linear_length = 20;
 const size_t quantized_size = 8;
 const size_t lut_size = 30; // Optimal 50
+const int linear_tolerance = 6;
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
@@ -218,15 +219,13 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
         check_points[2] = input[input_pos + linear_length / 2];
         check_points[3] = input[input_pos + linear_length * 3 / 4];
 
-        if (is_linear_fit(check_points, 5, 2)) {
+        if (is_linear_fit(check_points, 5, linear_tolerance)) {
             // Write block header with verb and length
             output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
             
             memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
-            output[output_pos + 0] = 0xFF;
             output_pos += sizeof(Vector3D);
             memcpy(&output[output_pos], &input[input_pos + linear_length - 1], sizeof(Vector3D));
-            output[output_pos + 0] = 0xFF;
             output_pos += sizeof(Vector3D);
             input_pos += linear_length;
             return output_pos;
@@ -423,7 +422,7 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
 
         // Linear encoding for run-length and slopes like PNG
         size_t linear_encoded = encode_linear(&input[input_pos], &reference[input_pos],
-                                        linear_length, &output[output_pos]);
+                                        input_size - input_pos, &output[output_pos]);
         if (linear_encoded > 0) {
             output_pos += linear_encoded;
             input_pos += linear_length;
