@@ -19,8 +19,6 @@ const size_t linear_length = 20;
 const size_t quantized_size = 8;
 const size_t lut_size = 30; // Optimal 50
 const int linear_tolerance = 6;
-// 20% compression improvement of 4 vs 1
-const uint32_t lut_threshold = 8 * 8 * sizeof(Vector3D);
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
@@ -28,6 +26,9 @@ typedef struct {
     uint8_t y;
     uint8_t z;
 } Vector3D;
+
+// 20% compression improvement of 4 vs 1
+const uint32_t lut_threshold = 8 * 8 * sizeof(Vector3D);
 
 // Function to calculate squared distance between two 3D vectors
 uint32_t vector_distance_sq(Vector3D a, Vector3D b) {
@@ -252,7 +253,7 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
     return output_pos;
 }
 
-// Update encode_lut function
+// Updated encode_lut function
 size_t encode_lut(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
     size_t output_pos = 0;
@@ -262,16 +263,35 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
     size_t block_length = (lut_size <= MAX_BLOCK_LENGTH) ? lut_size : MAX_BLOCK_LENGTH;
     
     if (input_pos + block_length <= input_size) {
-        // Create LUT with 4 most frequent
+        // Check if differences are only in bits 3-0 (lower 4 bits)
+        bool only_low_bits_diff = true;
+        for (size_t i = 0; i < block_length; i++) {
+            uint8_t x_upper_diff = (input[input_pos + i].x ^ reference[input_pos + i].x) & 0xC0;
+            uint8_t y_upper_diff = (input[input_pos + i].y ^ reference[input_pos + i].y) & 0xC0;
+            uint8_t z_upper_diff = (input[input_pos + i].z ^ reference[input_pos + i].z) & 0xC0;
+            
+            if (x_upper_diff || y_upper_diff || z_upper_diff) {
+                only_low_bits_diff = false;
+                break;
+            }
+        }
+        
+        if (only_low_bits_diff) {
+            return output_pos; // Skip LUT encoding if only lower 6 bits differ
+        }
+        
+        // Create LUT with 4 most frequent values from input
         Vector3D lut[4];
-        size_t size = find_most_frequent(&input[input_pos], block_length, lut, 4);
-        if (size < block_length) {
-            return output_pos;
+        size_t input_coverage = find_most_frequent(&input[input_pos], block_length, lut, 4);
+        
+        if (input_coverage < block_length) {
+            return output_pos; // Not enough coverage with our LUT
         }
 
         // Write block header with verb and length
         output_pos += start_block(VERB_LOOKUP, block_length, &output[output_pos]);
         
+        // Store the LUT
         memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
         output_pos += sizeof(Vector3D) * 4;
         
