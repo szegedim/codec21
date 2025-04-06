@@ -223,8 +223,10 @@ size_t encode_linear(const Vector3D* input, const Vector3D* reference,
             output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
             
             memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
+            output[output_pos + 0] = 0xFF;
             output_pos += sizeof(Vector3D);
             memcpy(&output[output_pos], &input[input_pos + linear_length - 1], sizeof(Vector3D));
+            output[output_pos + 0] = 0xFF;
             output_pos += sizeof(Vector3D);
             input_pos += linear_length;
             return output_pos;
