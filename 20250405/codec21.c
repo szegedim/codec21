@@ -19,6 +19,8 @@ const size_t linear_length = 20;
 const size_t quantized_size = 8;
 const size_t lut_size = 30; // Optimal 50
 const int linear_tolerance = 6;
+// 20% compression improvement of 4 vs 1
+const uint32_t lut_threshold = 8 * 8 * sizeof(Vector3D);
 
 // Structure to represent a 3D byte vector, literally a red, green, blue pixel
 typedef struct {
@@ -107,9 +109,7 @@ int find_most_frequent(const Vector3D* data, size_t length,
     for (size_t i = 0; i < length; i++) {
         bool found = false;
         for (size_t j = 0; j < unique_count; j++) {
-            // 20% compression improvement of 4 vs 1
-            uint32_t threshold = 8 * 8 * sizeof(Vector3D);
-            if (vector_distance_sq(data[i], freq[j].value) < threshold) {
+            if (vector_distance_sq(data[i], freq[j].value) < lut_threshold) {
                 freq[j].count++;
                 found = true;
                 break;
@@ -207,27 +207,49 @@ DiffRange get_diff_range(const Vector3D* input, const Vector3D* reference, size_
     return has_medium ? DIFF_MEDIUM : DIFF_SMALL;
 }
 
-// Function to encode LUT blocks similar to the compression ratio to PNG
+// Function to encode linear blocks when input follows a linear pattern
+// but differs significantly from reference
 size_t encode_linear(const Vector3D* input, const Vector3D* reference,
                  size_t input_size, uint8_t* output) {
     size_t output_pos = 0;
     size_t input_pos = 0;
     
-    if (input_pos + linear_length < input_size) {
-        if (is_linear_fit(&input[input_pos], linear_length, linear_tolerance)) {
-            // Write block header with verb and length
-            output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
-            
-            memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
-            output_pos += sizeof(Vector3D);
-            memcpy(&output[output_pos], &input[input_pos + linear_length - 1], sizeof(Vector3D));
-            output_pos += sizeof(Vector3D);
-            input_pos += linear_length;
-            return output_pos;
-        }
+    if (input_pos + linear_length > input_size) {
+        return 0;  // Not enough pixels for linear block
     }
 
-    return 0;
+    // First check if input data fits a linear pattern
+    if (!is_linear_fit(&input[input_pos], linear_length, linear_tolerance)) {
+        return 0;  // Input doesn't fit linear pattern
+    }
+    
+    // Now check if the difference from reference exceeds linear_tolerance
+    bool significant_difference = false;
+    for (size_t i = 0; i < linear_length; i++) {
+        int dx = abs((int)input[input_pos + i].x - (int)reference[input_pos + i].x);
+        int dy = abs((int)input[input_pos + i].y - (int)reference[input_pos + i].y);
+        int dz = abs((int)input[input_pos + i].z - (int)reference[input_pos + i].z);
+        
+        if (dx > linear_tolerance || dy > linear_tolerance || dz > linear_tolerance) {
+            significant_difference = true;
+            break;
+        }
+    }
+    
+    if (!significant_difference) {
+        return 0;  // Difference from reference is too small
+    }
+    
+    // Write block header with verb and length
+    output_pos += start_block(VERB_LINEAR, linear_length, &output[output_pos]);
+    
+    // Store only start and end points - we can interpolate between them
+    memcpy(&output[output_pos], &input[input_pos], sizeof(Vector3D));
+    output_pos += sizeof(Vector3D);
+    memcpy(&output[output_pos], &input[input_pos + linear_length - 1], sizeof(Vector3D));
+    output_pos += sizeof(Vector3D);
+    
+    return output_pos;
 }
 
 // Update encode_lut function
@@ -252,7 +274,7 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
         
         memcpy(&output[output_pos], lut, sizeof(Vector3D) * 4);
         output_pos += sizeof(Vector3D) * 4;
-
+        
         // Encode each value as 2-bit index to nearest LUT entry
         uint8_t index_buffer = 0;
         int bit_pos = 0;
