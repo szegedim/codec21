@@ -5,4 +5,3 @@ Add tuning points for AI optimizers at encoder side
 Optimize performance
 Configurable interpolation & low pass filter for H.264 1 bit/pixel
 Calculate loss for standalone tests
-Make receiver more resilient to UDP packet errors and random buffer lengths.

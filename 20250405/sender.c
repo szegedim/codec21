@@ -35,6 +35,7 @@ typedef struct {
 int running = 1;
 int sockfd;
 struct sockaddr_in server_addr;
+int y_frame_block_index = 0; // Rotating piece index between 0 and 99
 
 int compare(const void *a, const void *b) {
     long long diff = ((ImageFile*)a)->number - ((ImageFile*)b)->number;
@@ -70,6 +71,25 @@ void send_udp(uint8_t* data, size_t size) {
     if (sendto(sockfd, data, size, 0, 
               (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("UDP send failed");
+    }
+}
+
+// Add this function before process_images
+void y_reset_frame_piece(Vector3D* frame, int width, int height, int piece_index) {
+    // Calculate piece boundaries - divide height into 100 equal pieces
+    int pieces_count = 100;
+    int piece_height = height / pieces_count;
+    int start_line = piece_index * piece_height;
+    int end_line = (piece_index + 1) * piece_height;
+    
+    // Handle the last piece which might be slightly larger due to division remainder
+    if (piece_index == pieces_count - 1) {
+        end_line = height;
+    }
+    
+    // Clear the current piece in the frame
+    for (int line = start_line; line < end_line; line++) {
+        memset(&frame[line * width], 0xAA, width * sizeof(Vector3D));
     }
 }
 
@@ -120,6 +140,11 @@ void *process_images(void *arg) {
         return NULL;
     }
     
+    // Initialize all 100 pieces of the reference frame
+    for (int i = 0; i < 100; i++) {
+        y_reset_frame_piece(reference_frame, WIDTH, HEIGHT, i);
+    }
+    
     printf("Starting continuous processing loop. Press Ctrl+C to quit...\n");
 
     while (running) {
@@ -159,6 +184,12 @@ void *process_images(void *arg) {
                     
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
+                    
+                    // Clear the current piece in the reference frame copy
+                    y_reset_frame_piece(reference_frame_copy, width, height, y_frame_block_index);
+                    
+                    // Update the piece index for next frame
+                    y_frame_block_index = (y_frame_block_index + 1) % 100;
                     
                     for (int line = 0; line < height; line++) {
                         int segment_width = width / 4; // Width of each segment
