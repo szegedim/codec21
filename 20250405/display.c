@@ -17,8 +17,9 @@
 #include "codec21.h"
 #include "display.h"
 
-#define WINDOW_WIDTH 960
-#define WINDOW_HEIGHT 540
+// Regular processors may be slow to display for testing, so we divide.
+#define WINDOW_WIDTH (1920/4)
+#define WINDOW_HEIGHT (1080/4)
 
 static Display *display = NULL;
 static Window window;

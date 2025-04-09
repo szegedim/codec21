@@ -43,6 +43,82 @@ typedef struct {
     int line_number;  // Original line number for reference
 } CompressedLine;
 
+// Thread worker structure for encoding
+typedef struct {
+    Vector3D* image_data;
+    Vector3D* reference_frame_copy;
+    int width;
+    int height;
+    int start_line;
+    int end_line;
+    CompressedLine* compressed_lines;
+    size_t* total_bytes_compressed;
+    size_t* total_compressible_size;
+    double* frame_encode_time_us;
+    pthread_mutex_t* stats_mutex;  // For thread-safe updates to shared counters
+} EncodeThreadArgs;
+
+// Helper function to calculate elapsed time in microseconds between two timevals
+long long time_diff_us(struct timeval start, struct timeval end) {
+    return ((end.tv_sec - start.tv_sec) * 1000000LL) + 
+           (end.tv_usec - start.tv_usec);
+}
+
+// Thread worker function for encoding lines
+void* encode_thread_worker(void* arg) {
+    EncodeThreadArgs* args = (EncodeThreadArgs*)arg;
+    size_t thread_bytes_compressed = 0;
+    size_t thread_compressible_size = 0;
+    double thread_encode_time_us = 0.0;
+    
+    for (int line = args->start_line; line < args->end_line; line++) {
+        // Calculate the starting position for this line
+        int start_pos = line * args->width;
+        
+        // Track the compressible size in bytes
+        thread_compressible_size += args->width * sizeof(Vector3D);
+        
+        // Allocate buffer for this line's compressed data
+        uint8_t* temp_buffer = malloc(args->width * sizeof(Vector3D) * 2 + 1);
+        if (!temp_buffer) {
+            fprintf(stderr, "Failed to allocate buffer for line %d\n", line);
+            continue;
+        }
+        
+        // Compress this line
+        struct timeval encode_start, encode_end;
+        gettimeofday(&encode_start, NULL);
+        
+        size_t line_compressed_size = encode_block(
+            &args->image_data[start_pos],
+            &args->reference_frame_copy[start_pos],
+            args->width,
+            temp_buffer,
+            args->width * sizeof(Vector3D) * 2
+        );
+        
+        gettimeofday(&encode_end, NULL);
+        long long encode_elapsed_us = time_diff_us(encode_start, encode_end);
+        thread_encode_time_us += encode_elapsed_us;
+        
+        // Store the compressed data for later decoding
+        args->compressed_lines[line].data = temp_buffer;
+        args->compressed_lines[line].size = line_compressed_size;
+        args->compressed_lines[line].line_number = line;
+        
+        thread_bytes_compressed += line_compressed_size;
+    }
+    
+    // Update shared statistics with mutex protection
+    pthread_mutex_lock(args->stats_mutex);
+    *args->total_bytes_compressed += thread_bytes_compressed;
+    *args->total_compressible_size += thread_compressible_size;
+    *args->frame_encode_time_us += thread_encode_time_us;
+    pthread_mutex_unlock(args->stats_mutex);
+    
+    return NULL;
+}
+
 int compare(const void *a, const void *b) {
     long long diff = ((ImageFile*)a)->number - ((ImageFile*)b)->number;
     return (diff > 0) - (diff < 0);
@@ -76,12 +152,6 @@ Vector3D* image_to_vector3d(Imlib_Image img, int *size) {
 double time_diff_ms(struct timeval start, struct timeval end) {
     return ((end.tv_sec - start.tv_sec) * 1000.0) + 
            ((end.tv_usec - start.tv_usec) / 1000.0);
-}
-
-// Helper function to calculate elapsed time in microseconds between two timevals
-long long time_diff_us(struct timeval start, struct timeval end) {
-    return ((end.tv_sec - start.tv_sec) * 1000000LL) + 
-           (end.tv_usec - start.tv_usec);
 }
 
 // Modified process_images function with separated encoding and decoding
@@ -180,50 +250,52 @@ void *process_images(void *arg) {
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                     
-                    // ENCODING PHASE: Encode all lines first
+                    // ENCODING PHASE: Encode all lines using four threads
                     struct timeval encode_start_total, encode_end_total;
                     gettimeofday(&encode_start_total, NULL);
                     
-                    for (int line = 0; line < height; line++) {
-                        // Calculate the starting position for this line
-                        int start_pos = line * width;
+                    // Create mutex for thread-safe updates to shared statistics
+                    pthread_mutex_t stats_mutex;
+                    pthread_mutex_init(&stats_mutex, NULL);
+                    
+                    // Prepare thread arguments and threads
+                    const int num_threads = 20;  // Changed from 10 to 20
+                    pthread_t encode_threads[num_threads];
+                    EncodeThreadArgs thread_args[num_threads];
+                    int lines_per_thread = height / num_threads;
+                    
+                    for (int t = 0; t < num_threads; t++) {
+                        thread_args[t].image_data = image_data;
+                        thread_args[t].reference_frame_copy = reference_frame_copy;
+                        thread_args[t].width = width;
+                        thread_args[t].height = height;
+                        thread_args[t].start_line = t * lines_per_thread;
+                        thread_args[t].end_line = (t == num_threads - 1) ? height : (t + 1) * lines_per_thread;
+                        thread_args[t].compressed_lines = compressed_lines;
+                        thread_args[t].total_bytes_compressed = &total_bytes_compressed;
+                        thread_args[t].total_compressible_size = &total_compressible_size;
+                        thread_args[t].frame_encode_time_us = &frame_encode_time_us;
+                        thread_args[t].stats_mutex = &stats_mutex;
                         
-                        // Track the compressible size in bytes
-                        total_compressible_size += width * sizeof(Vector3D);
-                        
-                        // Allocate buffer for this line's compressed data
-                        uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2 + 1);
-                        if (!temp_buffer) {
-                            fprintf(stderr, "Failed to allocate buffer for line %d\n", line);
-                            continue;
+                        if (pthread_create(&encode_threads[t], NULL, encode_thread_worker, &thread_args[t]) != 0) {
+                            fprintf(stderr, "Failed to create encode thread %d\n", t);
+                            // Fall back to single-threaded encoding for this section
+                            encode_thread_worker(&thread_args[t]);
                         }
-                        
-                        // Compress this line
-                        struct timeval encode_start, encode_end;
-                        gettimeofday(&encode_start, NULL);
-                        
-                        size_t line_compressed_size = encode_block(
-                            &image_data[start_pos],
-                            &reference_frame_copy[start_pos],
-                            width,
-                            temp_buffer,
-                            width * sizeof(Vector3D) * 2
-                        );
-                        
-                        gettimeofday(&encode_end, NULL);
-                        long long encode_elapsed_us = time_diff_us(encode_start, encode_end);
-                        frame_encode_time_us += encode_elapsed_us;
-                        
-                        // Store the compressed data for later decoding
-                        compressed_lines[line].data = temp_buffer;
-                        compressed_lines[line].size = line_compressed_size;
-                        compressed_lines[line].line_number = line;
-                        
-                        total_bytes_compressed += line_compressed_size;
                     }
                     
+                    // Wait for all encoding threads to complete
+                    for (int t = 0; t < num_threads; t++) {
+                        pthread_join(encode_threads[t], NULL);
+                    }
+                    
+                    // Clean up mutex
+                    pthread_mutex_destroy(&stats_mutex);
+                    
                     gettimeofday(&encode_end_total, NULL);
-                    long long encode_total_us = time_diff_us(encode_start_total, encode_end_total);
+                    long long encode_wall_time_total_us = time_diff_us(encode_start_total, encode_end_total);
+                    
+                    printf("  Parallel encoding with %d threads completed\n", num_threads);
                     
                     // DECODING PHASE: Decode all lines in order
                     struct timeval decode_start_total, decode_end_total;
@@ -288,11 +360,12 @@ void *process_images(void *arg) {
                     
                     // Print timing information for this frame
                     printf("Timing statistics:\n");
-                    printf("  Encode total: %.2f µs\n", (double)encode_total_us);
+                    printf("  Encode processor time total: %.2f µs\n", frame_encode_time_us);
+                    printf("  Encode wall time total: %.2f µs\n", (double)encode_wall_time_total_us);
                     printf("  Decode total: %.2f µs\n", (double)decode_total_us);
                     printf("  Display time: %.2f µs\n", (double)display_elapsed_us);
                     printf("  Total processing time: %.2f µs\n", 
-                           (double)(encode_total_us + decode_total_us + display_elapsed_us));
+                           (double)(encode_wall_time_total_us + decode_total_us + display_elapsed_us));
                     
                     // Record the time immediately after displaying this frame
                     struct timeval current_time;
