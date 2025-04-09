@@ -20,11 +20,61 @@ gcc -o a.out standalone.c codec21.c display.c -lX11 -lImlib2 && ./a.out
 #include <pthread.h>
 #include <sys/time.h>
 #include <time.h>
+#include <stdarg.h>
+#include <errno.h>  // Add this line for errno
 #include "codec21.h"
 #include "display.h"
 
 // Increasing it to verify lossless compression quality.
 #define TEST_DELAY 1
+
+typedef enum {
+    LOG_DEBUG,    // Detailed debugging information
+    LOG_INFO,     // General informational messages
+    LOG_NOTICE,   // Normal but significant events
+    LOG_WARNING,  // Warning conditions
+    LOG_ERROR,    // Error conditions
+    LOG_NONE     // No logging
+} LogLevel;
+
+// Global log level setting
+static LogLevel current_log_level = LOG_INFO;
+
+// Static routine for centralized logging
+static void log_message(LogLevel level, const char* format, ...) {
+    // Only log messages at or above the current log level
+    if (level < current_log_level) return;
+    
+    // Prefix strings for different log levels
+    static const char* level_prefixes[] = {
+        "[DEBUG] ",
+        "[INFO] ",
+        "[NOTICE] ",
+        "[WARNING] ",
+        "[ERROR] "
+    };
+    
+    // Combine the prefix with the format string
+    char new_format[1024];
+    snprintf(new_format, sizeof(new_format), "%s%s", level_prefixes[level], format);
+    
+    // Pass the new format and the variable arguments to vprintf or vfprintf
+    va_list args;
+    va_start(args, format);
+    if (level >= LOG_WARNING) {
+        vfprintf(stderr, new_format, args);
+    } else {
+        vprintf(new_format, args);
+    }
+    va_end(args);
+    
+    // Make sure the output is flushed
+    if (level >= LOG_WARNING) {
+        fflush(stderr);
+    } else {
+        fflush(stdout);
+    }
+}
 
 typedef struct {
     char *name;
@@ -81,7 +131,7 @@ void* encode_thread_worker(void* arg) {
         // Allocate buffer for this line's compressed data
         uint8_t* temp_buffer = malloc(args->width * sizeof(Vector3D) * 2 + 1);
         if (!temp_buffer) {
-            fprintf(stderr, "Failed to allocate buffer for line %d\n", line);
+            log_message(LOG_ERROR, "Failed to allocate buffer for line %d\n", line);
             continue;
         }
         
@@ -134,7 +184,7 @@ Vector3D* image_to_vector3d(Imlib_Image img, int *size) {
     
     Vector3D* data = malloc(*size * sizeof(Vector3D));
     if (!data) {
-        fprintf(stderr, "Memory allocation failed\n");
+        log_message(LOG_ERROR, "Memory allocation failed\n");
         return NULL;
     }
     
@@ -166,7 +216,7 @@ void *process_images(void *arg) {
     
     dir = opendir(".");
     if (!dir) {
-        fprintf(stderr, "Cannot open directory\n");
+        log_message(LOG_ERROR, "Cannot open directory\n");
         return NULL;
     }
     
@@ -191,30 +241,29 @@ void *process_images(void *arg) {
     closedir(dir);
     
     if (file_count == 0) {
-        fprintf(stderr, "No matching PNG files found\n");
+        log_message(LOG_ERROR, "No matching PNG files found\n");
         return NULL;
     }
     
-    printf("Found %d matching files\n", file_count);
+    log_message(LOG_INFO, "Found %d matching files\n", file_count);
     qsort(files, file_count, sizeof(ImageFile), compare);
     
     // Allocate memory for reference frame
     Vector3D* reference_frame = calloc(WIDTH * HEIGHT, sizeof(Vector3D));
     if (!reference_frame) {
-        fprintf(stderr, "Failed to allocate memory for reference frame\n");
+        log_message(LOG_ERROR, "Failed to allocate memory for reference frame\n");
         return NULL;
     }
     
-    printf("Starting continuous processing loop. Press Ctrl+C to quit...\n");
+    log_message(LOG_INFO, "Starting continuous processing loop. Press Ctrl+C to quit...\n");
 
     while (running) {
         // Modified loop to process each file for eight frames before moving to the next
         for (int i = 0; i < file_count && running; i++) {
             // Load the image once
-            //printf("Loading file %s\n", files[i].name);
             Imlib_Image img = imlib_load_image(files[i].name);
             if (!img) {
-                printf("Failed to load image %s, skipping\n", files[i].name);
+                log_message(LOG_WARNING, "Failed to load image %s, skipping\n", files[i].name);
                 continue;
             }
             
@@ -223,13 +272,12 @@ void *process_images(void *arg) {
             imlib_free_image(); // Free the image after converting to Vector3D
             
             if (!image_data) {
-                printf("Failed to convert image %s to vector data, skipping\n", files[i].name);
+                log_message(LOG_WARNING, "Failed to convert image %s to vector data, skipping\n", files[i].name);
                 continue;
             }
             
             // Process the same image for 8 frames
             for (int frame = 0; frame < TEST_DELAY && running; frame++) {
-                //printf("Processing %s (frame %d of 8)\n", files[i].name, frame + 1);
                 
                 int width = WIDTH;
                 int height = HEIGHT;
@@ -250,7 +298,7 @@ void *process_images(void *arg) {
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                     
-                    // ENCODING PHASE: Encode all lines using four threads
+                    // ENCODING PHASE: Encode all lines using threads
                     struct timeval encode_start_total, encode_end_total;
                     gettimeofday(&encode_start_total, NULL);
                     
@@ -259,7 +307,7 @@ void *process_images(void *arg) {
                     pthread_mutex_init(&stats_mutex, NULL);
                     
                     // Prepare thread arguments and threads
-                    const int num_threads = 20;  // Changed from 10 to 20
+                    const int num_threads = 20;
                     pthread_t encode_threads[num_threads];
                     EncodeThreadArgs thread_args[num_threads];
                     int lines_per_thread = height / num_threads;
@@ -278,7 +326,7 @@ void *process_images(void *arg) {
                         thread_args[t].stats_mutex = &stats_mutex;
                         
                         if (pthread_create(&encode_threads[t], NULL, encode_thread_worker, &thread_args[t]) != 0) {
-                            fprintf(stderr, "Failed to create encode thread %d\n", t);
+                            log_message(LOG_ERROR, "Failed to create encode thread %d\n", t);
                             // Fall back to single-threaded encoding for this section
                             encode_thread_worker(&thread_args[t]);
                         }
@@ -295,7 +343,7 @@ void *process_images(void *arg) {
                     gettimeofday(&encode_end_total, NULL);
                     long long encode_wall_time_total_us = time_diff_us(encode_start_total, encode_end_total);
                     
-                    printf("  Parallel encoding with %d threads completed\n", num_threads);
+                    log_message(LOG_INFO, "  Parallel encoding with %d threads completed\n", num_threads);
                     
                     // DECODING PHASE: Decode all lines in order
                     struct timeval decode_start_total, decode_end_total;
@@ -337,14 +385,14 @@ void *process_images(void *arg) {
                     
                     // Print statistics
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
-                    printf("Frame statistics:\n");
-                    printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
-                    printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
-                    printf("  Compressible size: %zu bytes\n", total_compressible_size);
-                    printf("  Compression ratio: %.2f:1\n", compression_ratio);
+                    log_message(LOG_INFO, "Frame statistics:\n");
+                    log_message(LOG_INFO, "  Compressed size: %zu bytes\n", total_bytes_compressed);
+                    log_message(LOG_INFO, "  Decompressed size: %zu bytes\n", total_bytes_decompressed);
+                    log_message(LOG_INFO, "  Compressible size: %zu bytes\n", total_compressible_size);
+                    log_message(LOG_INFO, "  Compression ratio: %.2f:1\n", compression_ratio);
                     
                     if (total_compressible_size != total_bytes_decompressed) {
-                        fprintf(stderr, "ERROR: Size mismatch! Compression is not lossless!\n");
+                        log_message(LOG_ERROR, "ERROR: Size mismatch! Compression is not lossless!\n");
                         exit(1);
                     }
                     
@@ -359,12 +407,12 @@ void *process_images(void *arg) {
                     long long display_elapsed_us = time_diff_us(display_start, display_end);
                     
                     // Print timing information for this frame
-                    printf("Timing statistics:\n");
-                    printf("  Encode processor time total: %.2f µs\n", frame_encode_time_us);
-                    printf("  Encode wall time total: %.2f µs\n", (double)encode_wall_time_total_us);
-                    printf("  Decode total: %.2f µs\n", (double)decode_total_us);
-                    printf("  Display time: %.2f µs\n", (double)display_elapsed_us);
-                    printf("  Total processing time: %.2f µs\n", 
+                    log_message(LOG_INFO, "Timing statistics:\n");
+                    log_message(LOG_INFO, "  Encode processor time total: %.2f µs\n", frame_encode_time_us);
+                    log_message(LOG_INFO, "  Encode wall time total: %.2f µs\n", (double)encode_wall_time_total_us);
+                    log_message(LOG_INFO, "  Decode total: %.2f µs\n", (double)decode_total_us);
+                    log_message(LOG_INFO, "  Display time: %.2f µs\n", (double)display_elapsed_us);
+                    log_message(LOG_INFO, "  Total processing time: %.2f µs\n", 
                            (double)(encode_wall_time_total_us + decode_total_us + display_elapsed_us));
                     
                     // Record the time immediately after displaying this frame
@@ -378,7 +426,7 @@ void *process_images(void *arg) {
                 } else {
                     if (compressed_lines) free(compressed_lines);
                     if (reference_frame_copy) free(reference_frame_copy);
-                    fprintf(stderr, "Failed to allocate buffers for encoding\n");
+                    log_message(LOG_ERROR, "Failed to allocate buffers for encoding\n");
                 }
                 
                 if (TEST_DELAY) {
@@ -401,7 +449,7 @@ void *process_images(void *arg) {
                 // Add delay between different images, adjusted by elapsed time
                 long long target_delay_us = files[i + 1].number - files[i].number;
                 if (target_delay_us > elapsed_us) {
-                    printf("Delaying before next file: %lld microseconds (adjusted to %lld)\n", 
+                    log_message(LOG_INFO, "Delaying before next file: %lld microseconds (adjusted to %lld)\n", 
                            target_delay_us, target_delay_us - elapsed_us);
                     usleep((useconds_t)(target_delay_us - elapsed_us));
                 }
@@ -415,7 +463,7 @@ void *process_images(void *arg) {
                 
                 long long target_delay_us = 30000;  // 30ms delay before restarting
                 if (target_delay_us > elapsed_us) {
-                    printf("Reached last file, looping back to beginning (delay: %lld us)\n", 
+                    log_message(LOG_INFO, "Reached last file, looping back to beginning (delay: %lld us)\n", 
                            target_delay_us - elapsed_us);
                     usleep((useconds_t)(target_delay_us - elapsed_us));
                 }
@@ -436,27 +484,27 @@ void *process_images(void *arg) {
 int main() {
     // Initialize display
     if (init_display() == 0) {
-        fprintf(stderr, "Failed to initialize display\n");
+        log_message(LOG_ERROR, "Failed to initialize display\n");
         return 1;
     }
-    printf("Display initialized successfully\n");
+    log_message(LOG_INFO, "Display initialized successfully\n");
     
     // Create thread for processing images
     pthread_t processing_thread;
     if (pthread_create(&processing_thread, NULL, process_images, NULL) != 0) {
-        perror("Failed to create processing thread");
+        log_message(LOG_ERROR, "Failed to create processing thread: %s\n", strerror(errno));
         running = 0;
         return 1;
     }
     
-    printf("Image processing started\n");
+    log_message(LOG_INFO, "Image processing started\n");
     
     // Wait for thread to finish (it only exits on program termination)
     pthread_join(processing_thread, NULL);
     
     // Clean up display resources
     cleanup_display();
-    printf("Display resources cleaned up\n");
+    log_message(LOG_INFO, "Display resources cleaned up\n");
     
     return 0;
 }
