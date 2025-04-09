@@ -148,35 +148,30 @@ void *process_images(void *arg) {
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                     
                     for (int line = 0; line < height; line++) {
-                        int segment_width = width / 4; // Width of each segment
+                        // Calculate the starting position for this line
+                        int start_pos = line * width;
                         
-                        for (int chunk = 0; chunk < 4; chunk++) {
-                            // Calculate the starting position for this chunk
-                            int start_pos = line * width + chunk * segment_width;
-                            int current_segment_width = (chunk < 3) ? segment_width : width - (3 * segment_width);
-                            
-                            // Track the compressible size in bytes
-                            total_compressible_size += current_segment_width * sizeof(Vector3D);
-                            
-                            size_t chunk_compressed_size = encode_block(
-                                &image_data[start_pos],
-                                &reference_frame_copy[start_pos],
-                                current_segment_width,
-                                temp_buffer,
-                                current_segment_width * sizeof(Vector3D) * 2
-                            );
-                            
-                            total_bytes_compressed += chunk_compressed_size;
-                            
-                            size_t chunk_decompressed_size = decode_blocks(
-                                temp_buffer,
-                                chunk_compressed_size,
-                                &reference_frame[start_pos],
-                                &reference_frame_copy[start_pos]
-                            );
-                            
-                            total_bytes_decompressed += chunk_decompressed_size * sizeof(Vector3D);
-                        }
+                        // Track the compressible size in bytes
+                        total_compressible_size += width * sizeof(Vector3D);
+                        
+                        size_t line_compressed_size = encode_block(
+                            &image_data[start_pos],
+                            &reference_frame_copy[start_pos],
+                            width,
+                            temp_buffer,
+                            width * sizeof(Vector3D) * 2
+                        );
+                        
+                        total_bytes_compressed += line_compressed_size;
+                        
+                        size_t line_decompressed_size = decode_blocks(
+                            temp_buffer,
+                            line_compressed_size,
+                            &reference_frame[start_pos],
+                            &reference_frame_copy[start_pos]
+                        );
+                        
+                        total_bytes_decompressed += line_decompressed_size * sizeof(Vector3D);
                     }
                     
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
