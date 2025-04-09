@@ -36,6 +36,13 @@ int running = 1;
 // Add this global variable to track when the last frame was displayed
 struct timeval last_display_time;
 
+// Add a structure to store compressed data for each line
+typedef struct {
+    uint8_t* data;    // Compressed data for this line
+    size_t size;      // Size of the compressed data
+    int line_number;  // Original line number for reference
+} CompressedLine;
+
 int compare(const void *a, const void *b) {
     long long diff = ((ImageFile*)a)->number - ((ImageFile*)b)->number;
     return (diff > 0) - (diff < 0);
@@ -77,7 +84,7 @@ long long time_diff_us(struct timeval start, struct timeval end) {
            (end.tv_usec - start.tv_usec);
 }
 
-// Modify the process_images function to track timing
+// Modified process_images function with separated encoding and decoding
 void *process_images(void *arg) {
     // Initialize the last display time to the start of the program
     gettimeofday(&last_display_time, NULL);
@@ -157,10 +164,11 @@ void *process_images(void *arg) {
                 int width = WIDTH;
                 int height = HEIGHT;
                 
-                uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2 + 1); // +1 for separator
+                // Allocate array to store compressed data for each line
+                CompressedLine* compressed_lines = malloc(height * sizeof(CompressedLine));
                 Vector3D* reference_frame_copy = malloc(WIDTH * HEIGHT * sizeof(Vector3D));
                 
-                if (temp_buffer && reference_frame_copy) {
+                if (compressed_lines && reference_frame_copy) {
                     size_t total_bytes_compressed = 0;
                     size_t total_bytes_decompressed = 0;
                     size_t total_compressible_size = 0;
@@ -172,6 +180,10 @@ void *process_images(void *arg) {
                     // Make a copy of the reference frame at the start of frame processing
                     memcpy(reference_frame_copy, reference_frame, WIDTH * HEIGHT * sizeof(Vector3D));
                     
+                    // ENCODING PHASE: Encode all lines first
+                    struct timeval encode_start_total, encode_end_total;
+                    gettimeofday(&encode_start_total, NULL);
+                    
                     for (int line = 0; line < height; line++) {
                         // Calculate the starting position for this line
                         int start_pos = line * width;
@@ -179,7 +191,14 @@ void *process_images(void *arg) {
                         // Track the compressible size in bytes
                         total_compressible_size += width * sizeof(Vector3D);
                         
-                        // Timing for encode_block
+                        // Allocate buffer for this line's compressed data
+                        uint8_t* temp_buffer = malloc(width * sizeof(Vector3D) * 2 + 1);
+                        if (!temp_buffer) {
+                            fprintf(stderr, "Failed to allocate buffer for line %d\n", line);
+                            continue;
+                        }
+                        
+                        // Compress this line
                         struct timeval encode_start, encode_end;
                         gettimeofday(&encode_start, NULL);
                         
@@ -195,15 +214,34 @@ void *process_images(void *arg) {
                         long long encode_elapsed_us = time_diff_us(encode_start, encode_end);
                         frame_encode_time_us += encode_elapsed_us;
                         
-                        total_bytes_compressed += line_compressed_size;
+                        // Store the compressed data for later decoding
+                        compressed_lines[line].data = temp_buffer;
+                        compressed_lines[line].size = line_compressed_size;
+                        compressed_lines[line].line_number = line;
                         
-                        // Timing for decode_blocks
+                        total_bytes_compressed += line_compressed_size;
+                    }
+                    
+                    gettimeofday(&encode_end_total, NULL);
+                    long long encode_total_us = time_diff_us(encode_start_total, encode_end_total);
+                    
+                    // DECODING PHASE: Decode all lines in order
+                    struct timeval decode_start_total, decode_end_total;
+                    gettimeofday(&decode_start_total, NULL);
+                    
+                    for (int line = 0; line < height; line++) {
+                        // Skip lines that failed compression
+                        if (!compressed_lines[line].data) continue;
+                        
+                        int start_pos = line * width;
+                        
+                        // Decode this line
                         struct timeval decode_start, decode_end;
                         gettimeofday(&decode_start, NULL);
                         
                         size_t line_decompressed_size = decode_blocks(
-                            temp_buffer,
-                            line_compressed_size,
+                            compressed_lines[line].data,
+                            compressed_lines[line].size,
                             &reference_frame[start_pos],
                             &reference_frame_copy[start_pos]
                         );
@@ -215,13 +253,26 @@ void *process_images(void *arg) {
                         total_bytes_decompressed += line_decompressed_size * sizeof(Vector3D);
                     }
                     
+                    gettimeofday(&decode_end_total, NULL);
+                    long long decode_total_us = time_diff_us(decode_start_total, decode_end_total);
+                    
+                    // Free all compressed line buffers
+                    for (int line = 0; line < height; line++) {
+                        if (compressed_lines[line].data) {
+                            free(compressed_lines[line].data);
+                        }
+                    }
+                    
+                    // Print statistics
                     double compression_ratio = (double)total_compressible_size / (double)total_bytes_compressed;
                     printf("Frame statistics:\n");
                     printf("  Compressed size: %zu bytes\n", total_bytes_compressed);
                     printf("  Decompressed size: %zu bytes\n", total_bytes_decompressed);
                     printf("  Compressible size: %zu bytes\n", total_compressible_size);
                     printf("  Compression ratio: %.2f:1\n", compression_ratio);
+                    
                     if (total_compressible_size != total_bytes_decompressed) {
+                        fprintf(stderr, "ERROR: Size mismatch! Compression is not lossless!\n");
                         exit(1);
                     }
                     
@@ -237,24 +288,22 @@ void *process_images(void *arg) {
                     
                     // Print timing information for this frame
                     printf("Timing statistics:\n");
-                    printf("  Encode time: %.2f µs\n", frame_encode_time_us);
-                    printf("  Decode time: %.2f µs\n", frame_decode_time_us);
-                    printf("  Display time: %.2f µs\n", display_elapsed_us);
+                    printf("  Encode total: %.2f µs\n", (double)encode_total_us);
+                    printf("  Decode total: %.2f µs\n", (double)decode_total_us);
+                    printf("  Display time: %.2f µs\n", (double)display_elapsed_us);
                     printf("  Total processing time: %.2f µs\n", 
-                           frame_encode_time_us + frame_decode_time_us + display_elapsed_us);
+                           (double)(encode_total_us + decode_total_us + display_elapsed_us));
                     
                     // Record the time immediately after displaying this frame
                     struct timeval current_time;
                     gettimeofday(&current_time, NULL);
-                    
-                    // Update last_display_time for the next iteration
                     last_display_time = current_time;
                     
-                    // Free temporary buffers
+                    // Free allocated resources
+                    free(compressed_lines);
                     free(reference_frame_copy);
-                    free(temp_buffer);
                 } else {
-                    if (temp_buffer) free(temp_buffer);
+                    if (compressed_lines) free(compressed_lines);
                     if (reference_frame_copy) free(reference_frame_copy);
                     fprintf(stderr, "Failed to allocate buffers for encoding\n");
                 }
