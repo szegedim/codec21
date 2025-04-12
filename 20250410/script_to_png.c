@@ -1,3 +1,6 @@
+/*
+gcc script_to_png.c -o script_to_png.a -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,19 +11,8 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
-
-// Try alternative include paths for FreeType
-#ifdef __has_include
-#  if __has_include(<ft2build.h>)
-#    include <ft2build.h>
-#  elif __has_include(<freetype2/ft2build.h>)
-#    include <freetype2/ft2build.h>
-#  else
-#    error "Could not find ft2build.h - please install freetype development packages"
-#  endif
-#else
-#  include <freetype2/ft2build.h>
-#endif
+#include <curl/curl.h> // <-- Added for libcurl
+#include <freetype2/ft2build.h>
 
 #include FT_FREETYPE_H
 #include <png.h>
@@ -40,10 +32,24 @@ typedef struct {
     int height;
 } Image;
 
-// Thread data structure for PNG generation
+// Structure to hold PNG data in memory
+typedef struct {
+    unsigned char *buffer;
+    size_t size;
+} MemoryStruct;
+
+// Structure for libcurl read callback
+typedef struct {
+    const unsigned char *data;
+    size_t size;
+    size_t pos;
+} UploadData;
+
+
+// Thread data structure for PNG generation/upload
 typedef struct {
     FT_Face face;
-    const char* output_dir;
+    const char* upload_url; // <-- Changed from output_dir
     char (*lines)[LINE_BUFFER_SIZE];
     int* line_count;
     pthread_mutex_t* mutex;
@@ -56,24 +62,6 @@ typedef struct {
     int* line_count;
     pthread_mutex_t* mutex;
 } ScriptThreadData;
-
-// Make sure directory exists
-int ensure_directory(const char* dir_path) {
-    struct stat st;
-    if (stat(dir_path, &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            return 0;
-        }
-        return -1;
-    }
-
-    if (mkdir(dir_path, 0777) != 0) {
-        fprintf(stderr, "Error creating directory %s: %s\n", dir_path, strerror(errno));
-        return -1;
-    }
-
-    return 0;
-}
 
 // Signal handler to gracefully exit the program
 void handle_signal(int sig) {
@@ -91,6 +79,7 @@ Image* create_image(int width, int height) {
 
     img->width = width;
     img->height = height;
+    // Use calloc for zero-initialization (though we overwrite below)
     img->buffer = (unsigned char*)calloc(width * height * 4, sizeof(unsigned char));
 
     if (!img->buffer) {
@@ -99,17 +88,18 @@ Image* create_image(int width, int height) {
         return NULL;
     }
 
+    // Set background to white (RGBA)
     for (int i = 0; i < width * height * 4; i += 4) {
-        img->buffer[i] = 255;     // R
-        img->buffer[i + 1] = 255; // G
-        img->buffer[i + 2] = 255; // B
-        img->buffer[i + 3] = 255; // A
+        img->buffer[i] = 255;
+        img->buffer[i + 1] = 255;
+        img->buffer[i + 2] = 255;
+        img->buffer[i + 3] = 255;
     }
 
     return img;
 }
 
-// Draw text on image using FreeType
+// Draw text on image using FreeType (Unchanged)
 void draw_text(Image* img, FT_Face face, char* text, int x, int y) {
     if (!img || !img->buffer || !text) return;
 
@@ -133,37 +123,73 @@ void draw_text(Image* img, FT_Face face, char* text, int x, int y) {
                     continue;
 
                 unsigned char pixel = bitmap->buffer[row * bitmap->pitch + col];
-                if (pixel > 0) {
+                if (pixel > 0) { // Use alpha value for blending (black text)
                     int index = (y_pos * img->width + x_pos) * 4;
-                    img->buffer[index] = 0;
-                    img->buffer[index + 1] = 0;
-                    img->buffer[index + 2] = 0;
+                    // Basic alpha blending (assuming white background)
+                    float alpha = pixel / 255.0f;
+                    img->buffer[index] = (unsigned char)(img->buffer[index] * (1.0f - alpha)); // R=0
+                    img->buffer[index + 1] = (unsigned char)(img->buffer[index+1] * (1.0f - alpha)); // G=0
+                    img->buffer[index + 2] = (unsigned char)(img->buffer[index+2] * (1.0f - alpha)); // B=0
+                    // Alpha remains 255 (fully opaque pixel content)
                 }
             }
         }
-
         pen_x += face->glyph->advance.x >> 6;
     }
 }
 
-// Save image to PNG file
-int save_png(Image* img, const char* filename) {
-    if (!img || !img->buffer || !filename) {
-        fprintf(stderr, "Invalid parameters for save_png\n");
-        return -1;
+
+// Custom write function for libpng to write to memory
+static void png_memory_write_data(png_structp png_ptr, png_bytep data, png_size_t length) {
+    MemoryStruct* mem = (MemoryStruct*)png_get_io_ptr(png_ptr);
+    size_t new_size = mem->size + length;
+
+    // Reallocate memory buffer
+    unsigned char* new_buffer = realloc(mem->buffer, new_size);
+    if (!new_buffer) {
+        png_error(png_ptr, "Memory allocation error in png_memory_write_data");
+        return;
+    }
+    mem->buffer = new_buffer;
+    memcpy(mem->buffer + mem->size, data, length);
+    mem->size += length;
+}
+
+// Custom flush function for libpng (can be empty for memory)
+static void png_memory_flush_data(png_structp png_ptr) {
+    // Nothing to do
+}
+
+// Read callback function for libcurl
+static size_t png_read_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
+    UploadData *upload_ctx = (UploadData *)userdata;
+    size_t buffer_size = size * nitems;
+    size_t bytes_to_copy = 0;
+
+    if (upload_ctx->pos < upload_ctx->size) {
+        bytes_to_copy = upload_ctx->size - upload_ctx->pos;
+        if (bytes_to_copy > buffer_size) {
+            bytes_to_copy = buffer_size;
+        }
+        memcpy(buffer, upload_ctx->data + upload_ctx->pos, bytes_to_copy);
+        upload_ctx->pos += bytes_to_copy;
+        return bytes_to_copy;
     }
 
-    FILE* fp = fopen(filename, "wb");
-    if (!fp) {
-        fprintf(stderr, "Failed to open file for writing: %s (Error: %s)\n",
-                filename, strerror(errno));
+    return 0; // No more data
+}
+
+
+// Encode image to PNG in memory and upload via HTTP PUT
+int upload_png_http(Image* img, const char* url) {
+    if (!img || !img->buffer || !url) {
+        fprintf(stderr, "Invalid parameters for upload_png_http\n");
         return -1;
     }
 
     png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png) {
         fprintf(stderr, "Failed to create PNG write structure\n");
-        fclose(fp);
         return -1;
     }
 
@@ -171,84 +197,158 @@ int save_png(Image* img, const char* filename) {
     if (!info) {
         fprintf(stderr, "Failed to create PNG info structure\n");
         png_destroy_write_struct(&png, NULL);
-        fclose(fp);
         return -1;
     }
 
+    // Initialize memory structure for PNG data
+    MemoryStruct png_mem = { .buffer = NULL, .size = 0 };
+    png_mem.buffer = malloc(1024); // Initial allocation
+    if (!png_mem.buffer) {
+         fprintf(stderr, "Failed initial memory allocation for PNG buffer\n");
+         png_destroy_write_struct(&png, &info);
+         return -1;
+    }
+    png_mem.size = 0; // Start with size 0, will grow
+
+    // Set error handling
     if (setjmp(png_jmpbuf(png))) {
         fprintf(stderr, "Error during PNG creation\n");
         png_destroy_write_struct(&png, &info);
-        fclose(fp);
+        free(png_mem.buffer);
         return -1;
     }
 
-    png_init_io(png, fp);
+    // Set custom write functions to write to memory
+    png_set_write_fn(png, &png_mem, png_memory_write_data, png_memory_flush_data);
+
+    // Set PNG header info
     png_set_IHDR(png, info, img->width, img->height, 8,
-                PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
-                PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+                 PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 
     png_write_info(png, info);
 
+    // Prepare row pointers
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * img->height);
     if (!row_pointers) {
         fprintf(stderr, "Failed to allocate memory for PNG row pointers\n");
         png_destroy_write_struct(&png, &info);
-        fclose(fp);
+        free(png_mem.buffer);
         return -1;
     }
-
     for (int y = 0; y < img->height; y++) {
         row_pointers[y] = img->buffer + y * img->width * 4;
     }
 
+    // Write image data to memory buffer
     png_write_image(png, row_pointers);
     png_write_end(png, NULL);
 
+    // Clean up row pointers and libpng structures
     free(row_pointers);
     png_destroy_write_struct(&png, &info);
-    fclose(fp);
-    printf("Successfully wrote image to: %s\n", filename);
-    return 0;
-}
 
-// Execute script and capture output
-void execute_script(ScriptThreadData* data, const char* script_path, char lines[][LINE_BUFFER_SIZE], int* line_count) {
-    *line_count = 0;
+    // Now png_mem.buffer contains the PNG data, and png_mem.size is its size
 
-    char command[256];
-    snprintf(command, sizeof(command), "bash %s", script_path);
+    // --- Use libcurl to upload the PNG data ---
+    CURL *curl = NULL;
+    CURLcode res = CURLE_FAILED_INIT;
+    struct curl_slist *headers = NULL;
 
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
-        fprintf(stderr, "Failed to execute script: %s\n", script_path);
-        return;
-    }
+    curl = curl_easy_init();
+    if (curl) {
+        // Prepare data for upload callback
+        UploadData upload_ctx = { .data = png_mem.buffer, .size = png_mem.size, .pos = 0 };
 
-    char line[LINE_BUFFER_SIZE];
-    while (*line_count < MAX_OUTPUT_LINES &&
-           fgets(line, LINE_BUFFER_SIZE, pipe) != NULL) {
-        pthread_mutex_lock(data->mutex);
-        lines[*line_count][0] = '\0';
-        strncpy(lines[*line_count], line, LINE_BUFFER_SIZE);
-        size_t len = strlen(lines[*line_count]);
-        if (len > 0 && lines[*line_count][len-1] == '\n') {
-            lines[*line_count][len-1] = '\0';
+        // Set Content-Type header
+        headers = curl_slist_append(headers, "Content-Type: image/png");
+        if (!headers) {
+            fprintf(stderr, "Failed to create curl slist for headers\n");
+            curl_easy_cleanup(curl);
+            free(png_mem.buffer);
+            return -1;
         }
-        (*line_count)++;
-        pthread_mutex_unlock(data->mutex);
+
+        // Set libcurl options for PUT request
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, png_read_callback);
+        curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
+        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)png_mem.size);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        // Check for errors
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        } else {
+            long response_code;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+            printf("Successfully uploaded PNG (%zu bytes) to %s. HTTP Response Code: %ld\n",
+                   png_mem.size, url, response_code);
+            if (response_code >= 400) {
+                 fprintf(stderr, "Warning: Server responded with error code %ld\n", response_code);
+                 // Consider treating server errors as upload failures
+                 res = CURLE_HTTP_RETURNED_ERROR; // Set an error status
+            }
+        }
+
+        // Clean up libcurl
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    } else {
+        fprintf(stderr, "Failed to initialize curl easy handle\n");
     }
 
-    pclose(pipe);
+    // Free the memory buffer holding the PNG data
+    free(png_mem.buffer);
+
+    return (res == CURLE_OK) ? 0 : -1; // Return 0 on success, -1 on failure
 }
 
-// Get current time in microseconds
+
+// Execute script and capture output (Unchanged)
+void execute_script(ScriptThreadData* data, const char* script_path, char lines[][LINE_BUFFER_SIZE], int* line_count) {
+     *line_count = 0;
+
+     char command[256];
+     snprintf(command, sizeof(command), "bash %s", script_path);
+
+     FILE* pipe = popen(command, "r");
+     if (!pipe) {
+         fprintf(stderr, "Failed to execute script: %s\n", script_path);
+         return;
+     }
+
+     char line[LINE_BUFFER_SIZE];
+     // Read lines within the lock to ensure consistency
+     pthread_mutex_lock(data->mutex);
+     while (*line_count < MAX_OUTPUT_LINES &&
+            fgets(line, LINE_BUFFER_SIZE, pipe) != NULL) {
+         strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
+         lines[*line_count][LINE_BUFFER_SIZE - 1] = '\0'; // Ensure null termination
+         size_t len = strlen(lines[*line_count]);
+         if (len > 0 && lines[*line_count][len-1] == '\n') {
+             lines[*line_count][len-1] = '\0'; // Remove trailing newline
+         }
+         (*line_count)++;
+     }
+     pthread_mutex_unlock(data->mutex);
+
+     pclose(pipe);
+ }
+
+// Get current time in microseconds (Unchanged)
 long long get_microseconds() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (long long)tv.tv_sec * 1000000LL + tv.tv_usec;
 }
 
-// Thread function to execute script
+// Thread function to execute script (Unchanged)
 void* script_thread0(void* arg) {
     ScriptThreadData* data = (ScriptThreadData*)arg;
 
@@ -257,11 +357,11 @@ void* script_thread0(void* arg) {
     return NULL;
 }
 
-// Thread function to generate PNGs
-void* generate_pngs(void* arg) {
+// Thread function to generate and upload PNGs
+void* generate_and_upload_pngs(void* arg) {
     PngThreadData* data = (PngThreadData*)arg;
     FT_Face face = data->face;
-    const char* output_dir = data->output_dir;
+    const char* upload_url = data->upload_url; // Use the URL
     char (*lines)[LINE_BUFFER_SIZE] = data->lines;
     int* line_count = data->line_count;
     pthread_mutex_t* mutex = data->mutex;
@@ -272,27 +372,25 @@ void* generate_pngs(void* arg) {
     while (running) {
         long long current_time = get_microseconds();
         long long elapsed_us = current_time - start_time;
-        long long expected_frame_time = frame_count * 1000000LL;
+        // Aim for roughly 1 frame per second (adjust as needed)
+        long long expected_frame_time = frame_count * 1000000LL; // 1 second intervals
 
         if (elapsed_us >= expected_frame_time) {
             frame_count++;
 
-            // Create output filename
-            char output_path[512];
-            snprintf(output_path, sizeof(output_path), "%s/output_%06d_%lld_us.png",
-                    output_dir, frame_count, elapsed_us);
-
             // Create image
             Image* img = create_image(WIDTH, HEIGHT);
             if (!img) {
-                fprintf(stderr, "Failed to create image\n");
+                fprintf(stderr, "Failed to create image for frame %d\n", frame_count);
+                // Avoid busy-waiting on failure
+                usleep(100000); // Sleep 100ms before retrying
                 continue;
             }
 
             // Add timestamp
-            char timestamp[64];
-            snprintf(timestamp, sizeof(timestamp), "Frame %d - Elapsed: %lld microseconds",
-                    frame_count, elapsed_us);
+            char timestamp[128];
+            snprintf(timestamp, sizeof(timestamp), "Frame %d - Elapsed: %.3f s",
+                     frame_count, elapsed_us / 1000000.0);
             draw_text(img, face, timestamp, 10, 20);
 
             // Draw script output or placeholder
@@ -300,69 +398,72 @@ void* generate_pngs(void* arg) {
             if (*line_count == 0) {
                 draw_text(img, face, "Waiting for script output...", 10, 50);
             } else {
-                for (int i = 0; i < *line_count; i++) {
-                    draw_text(img, face, lines[i], 10, 50 + i * (FONT_SIZE + 4));
+                int max_lines_to_draw = (HEIGHT - 60) / (FONT_SIZE + 4); // Calculate based on available space
+                int lines_drawn = 0;
+                for (int i = 0; i < *line_count && lines_drawn < max_lines_to_draw; i++) {
+                    draw_text(img, face, lines[i], 10, 50 + lines_drawn * (FONT_SIZE + 4));
+                    lines_drawn++;
                 }
             }
             pthread_mutex_unlock(mutex);
 
-            // Save image
-            int save_result = save_png(img, output_path);
-            if (save_result == 0) {
-                printf("Frame %d: Saved image at elapsed time %lld us\n",
+            // --- Upload image via HTTP PUT ---
+            int upload_result = upload_png_http(img, upload_url);
+            if (upload_result == 0) {
+                printf("Frame %d: Uploaded image at elapsed time %lld us\n",
                        frame_count, elapsed_us);
             } else {
-                fprintf(stderr, "Frame %d: Failed to save image\n", frame_count);
+                fprintf(stderr, "Frame %d: Failed to upload image\n", frame_count);
+                // Consider adding retry logic or specific error handling here
             }
 
+            // Clean up image resources for this frame
             free(img->buffer);
             free(img);
         }
 
-        usleep(10000); // 10ms
+        // Sleep to avoid busy-waiting and control frame rate
+        usleep(10000); // Check roughly every 10ms
     }
 
     return NULL;
 }
 
 int main(int argc, char** argv) {
+    // --- Updated Usage ---
     if (argc < 3) {
-        printf("Usage: %s <bash_script_path> <output_dir> [font_path]\n", argv[0]);
+        printf("Usage: %s <bash_script_path> <upload_url> [font_path]\n", argv[0]);
+        printf("Example: %s ./my_script.sh http://example.com/upload/image.png\n", argv[0]);
         return 1;
     }
 
     const char* script_path = argv[1];
-    const char* output_dir = argv[2];
-    const char* font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    const char* upload_url = argv[2]; // <-- Get URL from args
+    const char* font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"; // Default font
 
     if (argc >= 4) {
         font_path = argv[3];
     }
 
-    // Make sure the output directory exists
-    if (ensure_directory(output_dir) != 0) {
-        fprintf(stderr, "Error: Output directory issue with %s\n", output_dir);
-        return 1;
-    }
-
-    // Check write permissions
-    if (access(output_dir, W_OK) != 0) {
-        fprintf(stderr, "Error: No write permission for %s\n", output_dir);
-        return 1;
-    }
+    // --- Removed directory checks ---
 
     // Check if script exists
-    FILE* test_script = fopen(script_path, "r");
-    if (!test_script) {
-        fprintf(stderr, "Error: Cannot open script file %s: %s\n",
+    if (access(script_path, R_OK | X_OK) != 0) { // Check read and execute permission
+        fprintf(stderr, "Error: Cannot access or execute script file %s: %s\n",
                 script_path, strerror(errno));
         return 1;
     }
-    fclose(test_script);
 
     // Check if font file exists
     if (access(font_path, R_OK) != 0) {
-        fprintf(stderr, "Error: Cannot access font file %s\n", font_path);
+        fprintf(stderr, "Error: Cannot access font file %s: %s\n", font_path, strerror(errno));
+        return 1;
+    }
+
+    // --- Initialize libcurl ---
+    CURLcode global_res = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (global_res != CURLE_OK) {
+        fprintf(stderr, "Failed to initialize libcurl: %s\n", curl_easy_strerror(global_res));
         return 1;
     }
 
@@ -378,6 +479,7 @@ int main(int argc, char** argv) {
     error = FT_Init_FreeType(&library);
     if (error) {
         fprintf(stderr, "Failed to initialize FreeType library\n");
+        curl_global_cleanup(); // Clean up curl
         return 1;
     }
 
@@ -385,6 +487,7 @@ int main(int argc, char** argv) {
     if (error) {
         fprintf(stderr, "Failed to load font: %s\n", font_path);
         FT_Done_FreeType(library);
+        curl_global_cleanup();
         return 1;
     }
 
@@ -393,6 +496,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to set font size\n");
         FT_Done_Face(face);
         FT_Done_FreeType(library);
+        curl_global_cleanup();
         return 1;
     }
 
@@ -403,22 +507,23 @@ int main(int argc, char** argv) {
 
     pthread_mutex_init(&mutex, NULL);
 
-    // Set up PNG thread data
+    // Set up PNG upload thread data
     PngThreadData png_data = {
         .face = face,
-        .output_dir = output_dir,
+        .upload_url = upload_url, // <-- Pass URL
         .lines = lines,
         .line_count = &line_count,
         .mutex = &mutex
     };
 
-    // Start PNG generation thread
+    // Start PNG generation/upload thread
     pthread_t png_thread;
-    if (pthread_create(&png_thread, NULL, generate_pngs, &png_data) != 0) {
-        fprintf(stderr, "Failed to create PNG generation thread\n");
+    if (pthread_create(&png_thread, NULL, generate_and_upload_pngs, &png_data) != 0) { // <-- Changed function pointer
+        fprintf(stderr, "Failed to create PNG upload thread\n");
         pthread_mutex_destroy(&mutex);
         FT_Done_Face(face);
         FT_Done_FreeType(library);
+        curl_global_cleanup();
         return 1;
     }
 
@@ -439,6 +544,7 @@ int main(int argc, char** argv) {
         pthread_mutex_destroy(&mutex);
         FT_Done_Face(face);
         FT_Done_FreeType(library);
+        curl_global_cleanup();
         return 1;
     }
 
@@ -450,8 +556,9 @@ int main(int argc, char** argv) {
     pthread_mutex_destroy(&mutex);
     FT_Done_Face(face);
     FT_Done_FreeType(library);
+    curl_global_cleanup(); // <-- Clean up libcurl
 
-    printf("Image generation terminated.\n");
+    printf("Image generation and upload terminated.\n");
 
     return 0;
 }
