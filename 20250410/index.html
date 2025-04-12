@@ -48,12 +48,21 @@
 
         function updateImage() {
             const uniqueSeed = new Date().getTime();
-            const newImageUrl = `${baseImageUrl}${uniqueSeed}/${imageWidth}/${imageHeight}`;
-            imgElement.src = newImageUrl;
+            // Use proper query parameter format with '&' after existing parameter
+            const cacheBustUrl = `${baseImageUrl}&cachebust=${uniqueSeed}`;
+            
+            // Set cache control meta for the page
+            imgElement.setAttribute('cache-control', 'no-cache, no-store, must-revalidate');
+            imgElement.setAttribute('expires', '0');
+            imgElement.setAttribute('pragma', 'no-cache');
+            
+            // Actually use the cache-busted URL
+            imgElement.src = cacheBustUrl;
         }
 
         updateImage();
 
+        // Refresh every second
         setInterval(updateImage, 1000);
     </script>
 

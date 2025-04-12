@@ -398,10 +398,16 @@ void* generate_and_upload_pngs(void* arg) {
                 draw_text(img, face, "Waiting for script output...", 10, 50);
             } else {
                 int max_lines_to_draw = (HEIGHT - 60) / (FONT_SIZE + 4); // Calculate based on available space
-                int lines_drawn = 0;
-                for (int i = 0; i < *line_count && lines_drawn < max_lines_to_draw; i++) {
-                    draw_text(img, face, lines[i], 10, 50 + lines_drawn * (FONT_SIZE + 4));
-                    lines_drawn++;
+                int start_line = 0;
+                
+                // If we have more lines than can fit, start from later in the buffer
+                if (*line_count > max_lines_to_draw) {
+                    start_line = *line_count - max_lines_to_draw;
+                }
+                
+                // Draw only the most recent lines that fit
+                for (int i = 0; i < max_lines_to_draw && (start_line + i) < *line_count; i++) {
+                    draw_text(img, face, lines[start_line + i], 10, 50 + i * (FONT_SIZE + 4));
                 }
             }
             pthread_mutex_unlock(mutex);
