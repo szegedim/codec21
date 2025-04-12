@@ -1,5 +1,5 @@
 /*
-gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && ./script_to_png.out ./my_script.sh https://www.theme25.com/9fcad571df7a8aa3c0fc0f53e12d96f6d27a53ee77fb1926627459d0e296dc9d.tig?Content-Type=image/png
+gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && ./script_to_png.out ./my_script.sh https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png
 */
 #include <stdio.h>
 #include <stdlib.h>
