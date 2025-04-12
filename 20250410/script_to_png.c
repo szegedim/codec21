@@ -324,21 +324,20 @@ void execute_script(ScriptThreadData* data, const char* script_path, char lines[
      }
 
      char line[LINE_BUFFER_SIZE];
-     // Read lines within the lock to ensure consistency
-     pthread_mutex_lock(data->mutex);
      while (*line_count < MAX_OUTPUT_LINES &&
             fgets(line, LINE_BUFFER_SIZE, pipe) != NULL) {
-         strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
+        pthread_mutex_lock(data->mutex);
+        strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
          lines[*line_count][LINE_BUFFER_SIZE - 1] = '\0'; // Ensure null termination
          size_t len = strlen(lines[*line_count]);
          if (len > 0 && lines[*line_count][len-1] == '\n') {
              lines[*line_count][len-1] = '\0'; // Remove trailing newline
          }
          (*line_count)++;
-     }
-     pthread_mutex_unlock(data->mutex);
+         pthread_mutex_unlock(data->mutex);
+    }
 
-     pclose(pipe);
+    pclose(pipe);
  }
 
 // Get current time in microseconds (Unchanged)
