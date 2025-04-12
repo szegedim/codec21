@@ -1,5 +1,5 @@
 /*
-gcc script_to_png.c -o script_to_png.a -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm
+gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && ./script_to_png.out ./my_script.sh https://www.theme25.com/9fcad571df7a8aa3c0fc0f53e12d96f6d27a53ee77fb1926627459d0e296dc9d.tig?Content-Type=image/png
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,13 +11,13 @@ gcc script_to_png.c -o script_to_png.a -I/usr/include/freetype2 -lpng -lfreetype
 #include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
-#include <curl/curl.h> // <-- Added for libcurl
+#include <curl/curl.h>
 #include <freetype2/ft2build.h>
 
 #include FT_FREETYPE_H
 #include <png.h>
 
-#define MAX_OUTPUT_LINES 80
+#define MAX_OUTPUT_LINES 180
 #define LINE_BUFFER_SIZE 1024
 #define WIDTH 640
 #define HEIGHT 800
@@ -310,7 +310,7 @@ int upload_png_http(Image* img, const char* url) {
 }
 
 
-// Execute script and capture output (Unchanged)
+// Execute script and capture output (Modified to use circular buffer behavior)
 void execute_script(ScriptThreadData* data, const char* script_path, char lines[][LINE_BUFFER_SIZE], int* line_count) {
      *line_count = 0;
 
@@ -324,21 +324,37 @@ void execute_script(ScriptThreadData* data, const char* script_path, char lines[
      }
 
      char line[LINE_BUFFER_SIZE];
-     while (*line_count < MAX_OUTPUT_LINES &&
-            fgets(line, LINE_BUFFER_SIZE, pipe) != NULL) {
+     while (fgets(line, LINE_BUFFER_SIZE, pipe) != NULL) {
         pthread_mutex_lock(data->mutex);
-        strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
-         lines[*line_count][LINE_BUFFER_SIZE - 1] = '\0'; // Ensure null termination
-         size_t len = strlen(lines[*line_count]);
-         if (len > 0 && lines[*line_count][len-1] == '\n') {
-             lines[*line_count][len-1] = '\0'; // Remove trailing newline
-         }
-         (*line_count)++;
-         pthread_mutex_unlock(data->mutex);
+        
+        // If we've reached MAX_OUTPUT_LINES, shift all lines up by one
+        if (*line_count >= MAX_OUTPUT_LINES) {
+            // Shift all lines up (discard the oldest)
+            for (int i = 0; i < MAX_OUTPUT_LINES - 1; i++) {
+                strncpy(lines[i], lines[i + 1], LINE_BUFFER_SIZE - 1);
+                lines[i][LINE_BUFFER_SIZE - 1] = '\0';
+            }
+            // New line goes at the end (but don't increment line_count anymore)
+            strncpy(lines[MAX_OUTPUT_LINES - 1], line, LINE_BUFFER_SIZE - 1);
+            lines[MAX_OUTPUT_LINES - 1][LINE_BUFFER_SIZE - 1] = '\0';
+        } else {
+            // If we haven't reached the maximum, just add to the end and increment
+            strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
+            lines[*line_count][LINE_BUFFER_SIZE - 1] = '\0';
+            (*line_count)++;
+        }
+        
+        // Remove trailing newline (for both cases)
+        size_t len = strlen(lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1]);
+        if (len > 0 && lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1][len-1] == '\n') {
+            lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1][len-1] = '\0';
+        }
+        
+        pthread_mutex_unlock(data->mutex);
     }
 
     pclose(pipe);
- }
+}
 
 // Get current time in microseconds (Unchanged)
 long long get_microseconds() {

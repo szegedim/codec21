@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Theme25 | Creative WordPress Themes & Website Templates</title>
+    <title>Theme25 | Terminal Viewer</title>
 
     <link rel="icon" type="image/png" sizes="32x32" href="https://theme25.com/home/images/logo.png">
     <link rel="icon" type="image/png" sizes="192x192" href="https://theme25.com/home/images/logo.png">
     <link rel="apple-touch-icon" href="https://theme25.com/home/images/logo.png">
-
 
     <style>
         html, body {
@@ -16,6 +15,7 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
+            font-family: Arial, sans-serif;
         }
 
         body {
@@ -23,48 +23,133 @@
             justify-content: center;
             align-items: center;
             background-color: #f0f0f0;
+            flex-direction: column;
         }
 
         #updatingImage {
-            display: block;
+            display: none;
             max-width: 95%;
             max-height: 95vh;
             border: 1px solid #ccc;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
+
+        #urlPrompt {
+            background-color: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            width: 80%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        #terminalUrl {
+            width: 100%;
+            padding: 10px;
+            margin: 15px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        #submitButton {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
-
-    <img id="updatingImage" src="" alt="Dynamically updated image">
+    <img id="updatingImage" src="" alt="Terminal Output">
+    
+    <div id="urlPrompt">
+        <h2>Enter Terminal Stream URL</h2>
+        <p>Please enter the full URL for the terminal stream:</p>
+        <input type="text" id="terminalUrl" placeholder="e.g., https://www.theme25.com/9fcad571df7a8aa3c0fc0f53e12d96f6d27a53ee77fb1926627459d0e296dc9d.tig?Content-Type=image/png">
+        <br>
+        <button id="submitButton">Start Streaming</button>
+    </div>
 
     <script>
         const imgElement = document.getElementById('updatingImage');
-
-        //'https://picsum.photos/seed/';
-        const baseImageUrl = 'https://www.theme25.com/9fcad571df7a8aa3c0fc0f53e12d96f6d27a53ee77fb1926627459d0e296dc9d.tig?Content-Type=image/png'; 
-        const imageWidth = 400;
-        const imageHeight = 600;
-
+        const urlPrompt = document.getElementById('urlPrompt');
+        const terminalUrlInput = document.getElementById('terminalUrl');
+        const submitButton = document.getElementById('submitButton');
+        
+        let baseImageUrl = '';
+        let intervalId = null;
+        
+        // Check if we have a hash in the URL
+        function initFromHash() {
+            const hash = window.location.hash;
+            if (hash && hash.length > 1) {
+                // Remove the # character
+                const fullUrl = hash.substring(1);
+                startStreaming(fullUrl);
+                return true;
+            }
+            return false;
+        }
+        
+        // Start streaming with the given URL
+        function startStreaming(fullUrl) {
+            // Use the full URL directly instead of constructing it
+            baseImageUrl = fullUrl;
+            
+            // Hide the prompt and show the image
+            urlPrompt.style.display = 'none';
+            imgElement.style.display = 'block';
+            
+            // Update URL hash without reloading the page
+            window.history.replaceState(null, null, `#${fullUrl}`);
+            
+            // Start the update interval
+            updateImage();
+            intervalId = setInterval(updateImage, 1000);
+        }
+        
+        // Handle form submission
+        function handleSubmit() {
+            const value = terminalUrlInput.value.trim();
+            if (value) {
+                startStreaming(value);
+            }
+        }
+        
+        // Update the image with cache busting
         function updateImage() {
             const uniqueSeed = new Date().getTime();
-            // Use proper query parameter format with '&' after existing parameter
             const cacheBustUrl = `${baseImageUrl}&cachebust=${uniqueSeed}`;
             
-            // Set cache control meta for the page
             imgElement.setAttribute('cache-control', 'no-cache, no-store, must-revalidate');
             imgElement.setAttribute('expires', '0');
             imgElement.setAttribute('pragma', 'no-cache');
             
-            // Actually use the cache-busted URL
             imgElement.src = cacheBustUrl;
         }
-
-        updateImage();
-
-        // Refresh every second
-        setInterval(updateImage, 1000);
+        
+        // Event listeners
+        submitButton.addEventListener('click', handleSubmit);
+        terminalUrlInput.addEventListener('keyup', function(event) {
+            if (event.key === 'Enter') {
+                handleSubmit();
+            }
+        });
+        
+        // Check if we should start immediately from hash
+        if (!initFromHash()) {
+            // If not, show the prompt
+            urlPrompt.style.display = 'block';
+        }
     </script>
-
 </body>
 </html>
