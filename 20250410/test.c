@@ -167,20 +167,6 @@ int tests() {
         
             size_t decompressed_vectors = decode_blocks(compressed, compressed_size, 
                                                       decompressed, reference);
-    /*
-            for (size_t j=100; j < 350; j++) {
-                printf("GG %2x %2x %2x, ", input[j].x, input[j].y, input[j].z);
-            }
-            printf("\n");
-            for (size_t j=100; j < 350; j++) {
-                printf("HH %2x %2x %2x, ", reference[j].x, reference[j].y, reference[j].z);
-            }
-            printf("\n");
-            for (size_t j=100; j < 350; j++) {
-                printf("JJ %2x %2x %2x, ", decompressed[j].x, decompressed[j].y, decompressed[j].z);
-            }
-            printf("\n");
-    */
 
             memcpy(reference, decompressed, uncompressed_size);
 

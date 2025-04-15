@@ -335,9 +335,10 @@ size_t encode_lut(const Vector3D* input, const Vector3D* reference,
     return output_pos;
 }
 
-// Update encode_quantized function
+// Improved encode_quantized function with priority-based scanning
 size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
-                       size_t input_size, uint8_t* output) {
+                       size_t input_size, uint8_t* output,
+                       int start_mask_idx, int end_mask_idx) {
     size_t output_pos = 0;
     
     // Check each bit pair position (7-6, 5-4, 3-2, 1-0)
@@ -348,10 +349,15 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
     // Ensure block length fits in our length field
     size_t block_length = (input_size <= MAX_BLOCK_LENGTH) ? input_size : MAX_BLOCK_LENGTH;
     
+    // Validate indices
+    if (start_mask_idx < 0) start_mask_idx = 0;
+    if (end_mask_idx > 4) end_mask_idx = 4;
+    if (start_mask_idx >= end_mask_idx) return 0;
+    
     // Track if we found any differences at all
     bool any_differences = false;
     
-    // Examine each bit pair position
+    // Iterate through all bit positions in order of significance (0 to 3)
     for (int mask_idx = 0; mask_idx < 4; mask_idx++) {
         uint8_t bit_mask = bit_masks[mask_idx];
         uint8_t bit_shift = bit_shifts[mask_idx];
@@ -370,6 +376,11 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
         
         if (has_difference) {
+            // If this bit position is outside our specified range, just skip it
+            if (mask_idx < start_mask_idx || mask_idx >= end_mask_idx) {
+                return output_pos; // Skip this block
+            }
+            
             // Write block header with verb and length
             output_pos += start_block(verb_codes[mask_idx], block_length, &output[output_pos]);
             
@@ -418,15 +429,14 @@ size_t encode_quantized(const Vector3D* input, const Vector3D* reference,
         }
     }
     
-    // If we get here and didn't find any differences, use a VERB_SKIP
+    // If we get here and didn't find any differences in our range, use a VERB_SKIP
     if (!any_differences) {
         output_pos += start_block(VERB_SKIP, block_length, &output[output_pos]);
         return output_pos;
     }
     
-    printf("ERROR: No differences found\n");
-    output_pos += start_block(VERB_SKIP, block_length, &output[output_pos]);
-    return output_pos;
+    // If we found differences but none in our range, don't write anything
+    return 0;
 }
 
 // Function to encode blocks
@@ -457,6 +467,25 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
             continue;
         }
 
+        {
+            size_t fine_length = input_size - input_pos;
+            if (fine_length > quantized_size) {
+                fine_length = quantized_size;
+            }
+            if (fine_length > MAX_BLOCK_LENGTH) {
+                fine_length = MAX_BLOCK_LENGTH;
+            }
+
+            // Quantized encoding like JPEG-XS - now with start and end index parameters
+            size_t quantized_encoded = encode_quantized(&input[input_pos], &reference[input_pos],
+                                                        fine_length, &output[output_pos], 1, 4);
+            if (quantized_encoded > 0) {
+                output_pos += quantized_encoded;
+                input_pos += fine_length;
+                continue;
+            }
+        }
+        
         // Linear encoding for run-length and slopes like PNG
         size_t linear_encoded = encode_linear(&input[input_pos], &reference[input_pos],
                                         input_size - input_pos, &output[output_pos]);
@@ -475,21 +504,23 @@ size_t encode_block(const Vector3D* input, const Vector3D* reference,
             continue;
         }
 
-        size_t fine_length = input_size - input_pos;
-        if (fine_length > quantized_size) {
-            fine_length = quantized_size;
-        }
-        if (fine_length > MAX_BLOCK_LENGTH) {
-            fine_length = MAX_BLOCK_LENGTH;
-        }
+        {
+            size_t fine_length = input_size - input_pos;
+            if (fine_length > quantized_size) {
+                fine_length = quantized_size;
+            }
+            if (fine_length > MAX_BLOCK_LENGTH) {
+                fine_length = MAX_BLOCK_LENGTH;
+            }
 
-        // Quantized encoding like JPEG-XS
-        size_t quantized_encoded = encode_quantized(&input[input_pos], &reference[input_pos],
-                                                    fine_length, &output[output_pos]);
-        if (quantized_encoded > 0) {
-            output_pos += quantized_encoded;
-            input_pos += fine_length;
-            continue;
+            // Quantized encoding like JPEG-XS - now with start and end index parameters
+            size_t quantized_encoded = encode_quantized(&input[input_pos], &reference[input_pos],
+                                                        fine_length, &output[output_pos], 0, 1);
+            if (quantized_encoded > 0) {
+                output_pos += quantized_encoded;
+                input_pos += fine_length;
+                continue;
+            }
         }
     }
     
