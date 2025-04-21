@@ -17,7 +17,8 @@
 #include "codec21.h"
 #include "display.h"
 
-// Regular processors may be slow to display for testing, so we divide.
+// Regular laptop processors may be slow to display for testing,
+// so we divide.
 #define WINDOW_WIDTH (1920/4)
 #define WINDOW_HEIGHT (1080/4)
 

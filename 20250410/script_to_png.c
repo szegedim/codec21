@@ -1,5 +1,5 @@
 /*
-gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && ./script_to_png.out ./my_script.sh https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png
+gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && (./my_script.sh | ./script_to_png.out https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png)
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -459,29 +459,64 @@ void* generate_and_upload_pngs(void* arg) {
     return NULL;
 }
 
+// Modified to read from standard input instead of executing script
+void* stdin_reader_thread(void* arg) {
+    ScriptThreadData* data = (ScriptThreadData*)arg;
+    char (*lines)[LINE_BUFFER_SIZE] = data->lines;
+    int* line_count = data->line_count;
+    pthread_mutex_t* mutex = data->mutex;
+    
+    char line[LINE_BUFFER_SIZE];
+    
+    // Read from stdin until EOF
+    while (running && fgets(line, LINE_BUFFER_SIZE, stdin) != NULL) {
+        pthread_mutex_lock(mutex);
+        
+        // If we've reached MAX_OUTPUT_LINES, shift all lines up by one
+        if (*line_count >= MAX_OUTPUT_LINES) {
+            // Shift all lines up (discard the oldest)
+            for (int i = 0; i < MAX_OUTPUT_LINES - 1; i++) {
+                strncpy(lines[i], lines[i + 1], LINE_BUFFER_SIZE - 1);
+                lines[i][LINE_BUFFER_SIZE - 1] = '\0';
+            }
+            // New line goes at the end (but don't increment line_count anymore)
+            strncpy(lines[MAX_OUTPUT_LINES - 1], line, LINE_BUFFER_SIZE - 1);
+            lines[MAX_OUTPUT_LINES - 1][LINE_BUFFER_SIZE - 1] = '\0';
+        } else {
+            // If we haven't reached the maximum, just add to the end and increment
+            strncpy(lines[*line_count], line, LINE_BUFFER_SIZE - 1);
+            lines[*line_count][LINE_BUFFER_SIZE - 1] = '\0';
+            (*line_count)++;
+        }
+        
+        // Remove trailing newline
+        size_t len = strlen(lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1]);
+        if (len > 0 && lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1][len-1] == '\n') {
+            lines[(*line_count > 0) ? *line_count - 1 : MAX_OUTPUT_LINES - 1][len-1] = '\0';
+        }
+        
+        pthread_mutex_unlock(mutex);
+    }
+    
+    return NULL;
+}
+
+// Modified main function to use stdin reader thread
 int main(int argc, char** argv) {
     // --- Updated Usage ---
-    if (argc < 3) {
-        printf("Usage: %s <bash_script_path> <upload_url> [font_path]\n", argv[0]);
-        printf("Example: %s ./my_script.sh http://example.com/upload/image.png\n", argv[0]);
+    if (argc < 2) {
+        printf("Usage: %s <upload_url> [font_path]\n", argv[0]);
+        printf("Example: %s http://example.com/upload/image.png\n", argv[0]);
+        printf("The program will read from standard input and encode the text into PNG images.\n");
         return 1;
     }
 
-    const char* script_path = argv[1];
-    const char* upload_url = argv[2]; // <-- Get URL from args
+    // First argument is now the upload URL
+    const char* upload_url = argv[1];
     const char* font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"; // Default font
 
-    if (argc >= 4) {
-        font_path = argv[3];
-    }
-
-    // --- Removed directory checks ---
-
-    // Check if script exists
-    if (access(script_path, R_OK | X_OK) != 0) { // Check read and execute permission
-        fprintf(stderr, "Error: Cannot access or execute script file %s: %s\n",
-                script_path, strerror(errno));
-        return 1;
+    if (argc >= 3) {
+        font_path = argv[2];
     }
 
     // Check if font file exists
@@ -540,7 +575,7 @@ int main(int argc, char** argv) {
     // Set up PNG upload thread data
     PngThreadData png_data = {
         .face = face,
-        .upload_url = upload_url, // <-- Pass URL
+        .upload_url = upload_url,
         .lines = lines,
         .line_count = &line_count,
         .mutex = &mutex
@@ -548,7 +583,7 @@ int main(int argc, char** argv) {
 
     // Start PNG generation/upload thread
     pthread_t png_thread;
-    if (pthread_create(&png_thread, NULL, generate_and_upload_pngs, &png_data) != 0) { // <-- Changed function pointer
+    if (pthread_create(&png_thread, NULL, generate_and_upload_pngs, &png_data) != 0) {
         fprintf(stderr, "Failed to create PNG upload thread\n");
         pthread_mutex_destroy(&mutex);
         FT_Done_Face(face);
@@ -557,18 +592,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Set up script thread data
-    ScriptThreadData script_data = {
-        .script_path = script_path,
+    // Set up stdin reader thread data
+    ScriptThreadData stdin_data = {
+        .script_path = NULL, // Not needed for stdin
         .lines = lines,
         .line_count = &line_count,
         .mutex = &mutex
     };
 
-    // Start script execution thread
-    pthread_t script_thread;
-    if (pthread_create(&script_thread, NULL, script_thread0, &script_data) != 0) {
-        fprintf(stderr, "Failed to create script execution thread\n");
+    // Start stdin reader thread
+    pthread_t stdin_thread;
+    if (pthread_create(&stdin_thread, NULL, stdin_reader_thread, &stdin_data) != 0) {
+        fprintf(stderr, "Failed to create stdin reader thread\n");
         running = false; // Signal PNG thread to exit
         pthread_join(png_thread, NULL);
         pthread_mutex_destroy(&mutex);
@@ -580,13 +615,13 @@ int main(int argc, char** argv) {
 
     // Wait for both threads to finish
     pthread_join(png_thread, NULL);
-    pthread_join(script_thread, NULL);
+    pthread_join(stdin_thread, NULL);
 
     // Clean up
     pthread_mutex_destroy(&mutex);
     FT_Done_Face(face);
     FT_Done_FreeType(library);
-    curl_global_cleanup(); // <-- Clean up libcurl
+    curl_global_cleanup();
 
     printf("Image generation and upload terminated.\n");
 
