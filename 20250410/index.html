@@ -101,20 +101,176 @@
         }
         
         // Start streaming with the given URL
-        function startStreaming(fullUrl) {
-            // Use the full URL directly instead of constructing it
-            baseImageUrl = fullUrl;
+        async function startStreaming(fullUrl) {
+            try {
+                // Fetch the URL to get configuration
+                const response = await fetch(fullUrl);
+                const text = await response.text();
+                
+                // Split the response by newline
+                const urls = text.trim().split('\n');
+                
+                // Use the outer scope baseImageUrl instead of creating a local one
+                baseImageUrl = ''; // Reset the global variable
+                let interactionUrl = null;
+                
+                if (urls.length >= 1) {
+                    // Check if the first URL contains append=1
+                    if (urls[0].includes('append=1')) {
+                        // First URL is the interaction URL
+                        interactionUrl = urls[0];
+                        
+                        // If we have a second URL, it's the image URL
+                        if (urls.length >= 2) {
+                            baseImageUrl = urls[1];
+                        }
+                    } else {
+                        // First URL is the image URL
+                        baseImageUrl = urls[0];
+                        
+                        // Find the interaction URL if there are more URLs
+                        if (urls.length >= 2) {
+                            for (let i = 1; i < urls.length; i++) {
+                                if (urls[i].includes('append=1')) {
+                                    interactionUrl = urls[i];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // If no valid image URL was found, use the original URL
+                if (!baseImageUrl) {
+                    console.log('No valid image URL found in response, using provided URL directly');
+                    baseImageUrl = fullUrl;
+                }
+                
+                // Hide the prompt and show the image
+                urlPrompt.style.display = 'none';
+                imgElement.style.display = 'block';
+                
+                // Update URL hash without reloading the page
+                window.history.replaceState(null, null, `#${fullUrl}`);
+                
+                // Start the update interval
+                updateImage();
+                intervalId = setInterval(updateImage, 1000);
+                
+                // Enable interaction events if we have an interaction URL
+                if (interactionUrl) {
+                    enableInteractionEvents(interactionUrl);
+                }
+            } catch (error) {
+                // If any error occurs during fetch, use the original URL
+                console.error('Error starting stream:', error);
+                baseImageUrl = fullUrl;
+                
+                // Hide the prompt and show the image
+                urlPrompt.style.display = 'none';
+                imgElement.style.display = 'block';
+                
+                // Start the update interval
+                updateImage();
+                intervalId = setInterval(updateImage, 1000);
+            }
+        }
+        
+        // Enable keyboard and pointer/touch events with specific interaction URL
+        function enableInteractionEvents(interactionUrl) {
+            // Add keyboard listener
+            document.addEventListener('keydown', event => handleKeyEvent(event, interactionUrl));
             
-            // Hide the prompt and show the image
-            urlPrompt.style.display = 'none';
-            imgElement.style.display = 'block';
+            // Add mouse/touch events to the image
+            imgElement.addEventListener('click', event => handlePointerEvent(event, interactionUrl));
+            imgElement.addEventListener('touchstart', event => handleTouchEvent(event, interactionUrl));
             
-            // Update URL hash without reloading the page
-            window.history.replaceState(null, null, `#${fullUrl}`);
+            // Prevent default behavior on touch to avoid scrolling
+            imgElement.addEventListener('touchmove', function(e) { e.preventDefault(); });
+        }
+        
+        // Handle keyboard input
+        function handleKeyEvent(event, interactionUrl) {
+            let actionText = '';
             
-            // Start the update interval
-            updateImage();
-            intervalId = setInterval(updateImage, 1000);
+            // Check for modifier keys
+            const modifiers = [];
+            if (event.shiftKey) modifiers.push('shift');
+            if (event.ctrlKey) modifiers.push('ctrl');
+            if (event.altKey) modifiers.push('alt');
+            if (event.metaKey) modifiers.push('meta');
+            
+            // Construct the action text
+            if (modifiers.length > 0) {
+                actionText = `Typed characters ${modifiers.join('+')} ${event.key}.`;
+            } else {
+                actionText = `Typed characters ${event.key}.`;
+            }
+            
+            // Send the action to the server
+            sendAction(actionText, interactionUrl);
+        }
+        
+        // Handle mouse/pointer events
+        function handlePointerEvent(event, interactionUrl) {
+            // Calculate relative coordinates (0 to 1)
+            const rect = event.target.getBoundingClientRect();
+            const x = (event.clientX - rect.left) / rect.width;
+            const y = (event.clientY - rect.top) / rect.height;
+            
+            // Format to 2 decimal places
+            const xFormatted = x.toFixed(2);
+            const yFormatted = y.toFixed(2);
+            
+            const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.`;
+            sendAction(actionText, interactionUrl);
+        }
+        
+        // Handle touch events
+        function handleTouchEvent(event, interactionUrl) {
+            event.preventDefault();
+            
+            const rect = event.target.getBoundingClientRect();
+            const touches = event.touches;
+            
+            if (touches.length === 1) {
+                // Single touch - handle like a click
+                const x = (touches[0].clientX - rect.left) / rect.width;
+                const y = (touches[0].clientY - rect.top) / rect.height;
+                
+                const xFormatted = x.toFixed(2);
+                const yFormatted = y.toFixed(2);
+                
+                const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.`;
+                sendAction(actionText, interactionUrl);
+            } 
+            else if (touches.length > 1) {
+                // Multi-touch
+                let touchPoints = [];
+                
+                for (let i = 0; i < touches.length; i++) {
+                    const x = (touches[i].clientX - rect.left) / rect.width;
+                    const y = (touches[i].clientY - rect.top) / rect.height;
+                    touchPoints.push(`${x.toFixed(2)} and ${y.toFixed(2)}`);
+                }
+                
+                const actionText = `Multitouch at coordinates ${touchPoints.join(' and ')}.`;
+                sendAction(actionText, interactionUrl);
+            }
+        }
+        
+        // Send the action to the server
+        function sendAction(actionText, interactionUrl) {
+            fetch(interactionUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: actionText
+            })
+            .catch(error => {
+                console.error('Error sending action:', error);
+            });
         }
         
         // Handle form submission
