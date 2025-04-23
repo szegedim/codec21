@@ -1,0 +1,35 @@
+<p>CODEC21 is an image, audio, and video format inspired by recent developments in artificial intelligence and server-side graphics processing.</p>
+
+<p>It was designed as a tool for low-latency distributed computing using artificial intelligence. It makes modern video processing energy- and cost-efficient, making it suitable for interactive mobile devices, live streaming, large-resolution digital signage, generative inference, large-bandwidth model training, and easy-to-analyze storage and backup solutions.</p>
+
+<p>The unit cost of processors has decreased less significantly than memory and disk capacity. We can store more media, but processing remains costly. As a result, client-side processing faces bottlenecks related to power use and battery life.</p>
+
+<p>This created the need for very simple and efficient client-side decoding capabilities. Server-side systems can handle graphics rendering more effectively due to the spread of tensor-capable devices in data centers compared to a few years ago. Even mobile networks now possess sufficient broadband to handle media traffic.</p>
+
+<p>Power efficiency saves on batteries and engineering costs indirectly reducing the total cost on the environment.</p>
+
+<p>These developments make the compression ratio less critical; however, they require compression standards to be flexible, focusing on energy use. This necessitates new and better hardware on the client side.</p>
+
+<p>We also handle larger displays, such as 4K digital signage. Encoders can be driven by artificial intelligence. The standard itself is less important; balancing bandwidth and decoding resource needs is the focus. AI can tweak parameters on the fly, accommodating to the channel and even the content.</p>
+
+<p>The hardware landscape has also changed. Design verification constitutes the most expensive part of semiconductor costs. However, super-parallel tensor computing has arrived, which simply scales the same simple cores en masse.</p>
+
+<p>This allows the manufacturing of simple mobile tensor processors for image decoding, replacing rigid, standard-based, and algorithm-driven decoders like H.264, with their intellectual property restrictions. Block decoding is inflexible, and coding based on discrete cosine transforms and wavelet transforms is compute-intensive. They compress well, but processing each pixel requires an amount of computation related to the block dimensions.</p>
+
+<p>Our assumption is that the covariance of neighboring pixels is the same horizontally and vertically. The Pythagorean theorem suggests as a result that relying on the color locality of horizontal neighbors is sufficient for compression. This enables super-parallel decoding, eliminating cross-core memory bandwidth requirements.</p>
+
+<p>Similarly, motion compensation is difficult and not necessary for high-speed moving images, as they are often blurry, noisy, and change quickly. Motion compensation was highly beneficial in low-resolution, slow-moving videos a decade ago. Block sizes have doubled or quintupled since then, making motion-vector-based compression computationally expensive. Cross-core bus traffic makes it costly on client mobile processors.</p>
+
+<p>We focused on not the best, but the cheapest compression. Due to its simplicity, it can also be adjusted easily using server-side artificial intelligence tools.</p>
+
+<p>Our codec relies on the line as the basic unit of compression. This makes it super-parallel, theoretically allowing thousands of cores to operate simultaneously.</p>
+
+<p>We identified a few algorithms that can be optional based on client-side power use. Huffman and Zip compressions are memory-intensive. They can serve as an optional layer, but they can also be eliminated. Zip used to present a performance challenge on Raspberry Pi-class devices, along with symmetric key encryption. The latter can also be optional for public digital signage. Consequently, they have been removed from the codec standard.</p>
+
+<p>Our codec is ultimately lossless, making it useful as an image format like PNG, and potentially for document formats like PDF. Still, it utilizes progressive refinement to transmit the smallest details. It performs well with moving images too.</p>
+
+<p>The lossy algorithms of discrete cosine transform and wavelet transforms, followed by data dropping and quantization, are not strictly compression methods themselves. Color conversion is also a lossy process that changes the viewing experience. We recognized that these can still be efficient pre-processing tools used to modify an image before compression. The image to be compressed can be refined using these steps to improve decoding energy efficiency. They are also effective as noise or motion filters. Motion videos are known for their blurry, noisy characteristics. We handle small motions with lookup tables, similar to GIFs, which are great bandwidth-saving techniques while maintaining good color quality for the initial stages of progressive encoding.</p>
+
+<p>Our goals also relied on the predicted bandwidth of optical networks in the 2030s and 2040s. Semiconductor efficiency usually improves slower making our codec maybe the only option for super low latency decoding that time.</p>
+
+<p>As a result, our codec is designed to optimize for decoder cost and power efficiency. This also makes it a useful tool for artificial intelligence inference and training engines.</p>
