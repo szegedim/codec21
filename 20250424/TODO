@@ -1,0 +1,7 @@
+Verify codec accuracy
+Fix final lut unit test
+Send timestamps w/ audio
+Add tuning points for AI optimizers at encoder side
+Optimize performance
+Configurable interpolation & low pass filter for H.264 1 bit/pixel
+Calculate loss for standalone tests
