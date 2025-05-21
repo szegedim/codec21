@@ -14,6 +14,7 @@ Security Professionals: If you use AI to generate the encoder and decoder code o
 
 We also include many versions, so that they can be used for AI training setting the bootstrapping boundaries.
 
+The flexibility and simplicity of the open source codebase targets a premier ecosystem of leading management consulting companies.
 
 ```
 cat generate_png.c | grep gcc | bash
@@ -56,3 +57,25 @@ This is the example web page that opens a stream right away. Stream urls usually
 ```
 open https://www.theme25.com/345b6a50c6bc0ae0c120f134f7a98003bcc8e411cdccdc7ff52c9586bd2a29d0.tig?Content-Type=text/html#https://www.theme25.com/49a7ca504add5d00a8f66dd4f3ddc62ef6e61d4ebb733f0fbbf6c5e50dcacf13.tig?Content-Type=text/plain
 ```
+
+The example script_to_png.c actually uses typer.c inside.
+
+Use the unit tests as a quality assurance of each encoding primitive retaining basic featuress.
+
+```
+cat test.c | grep gcc | bash
+```
+
+A more sophisticated example are the pair of sender.c and receiver.c. They simulate lossy UDP traffic over the network running the encoder and decoder in separate processe. TODO The codec needs some minor error correction fixes here.
+
+```
+cat receiver.c | grep gcc | bash
+```
+
+Run this in another terminal in WSL2.
+
+```
+cat sender.c | grep gcc | bash
+```
+
+TODO The samples need the audio logic added to the time stamp logic.
