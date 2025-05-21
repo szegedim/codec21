@@ -8,6 +8,13 @@ We are also very simple making the lowest cost devices possible. Manufacturers c
 
 First you need to download and prepare some test files. We use PNGs read from the disk directly reducing the decoding overhead of H.264, H.265. This allows more accurate benchmarking of our own codebase.
 
+Each code file is less than 1000 lines making them suitable for tweaking and optimizing with AI. AI is very useful on the encoder side optimizing for workloads and different hyperparameters. The results can be mindblowing.
+
+Security Professionals: If you use AI to generate the encoder and decoder code only and you ship and distribute the audited code, it can be suitable for enterprise and defense usecases.
+
+We also include many versions, so that they can be used for AI training setting the bootstrapping boundaries.
+
+
 ```
 cat generate_png.c | grep gcc | bash
 ```
