@@ -33,13 +33,13 @@ Upload the viewer page just to try it works.
 cat index.html | curl -X 'PUT' --data-binary @- 'https://theme25.com?format=https://theme25.com%25s?Content-Type=text/html'
 ```
 
-Render and stream the console to a webpage using a series of PNG files.
+Render and stream the console to a webpage using a series of PNG files. TODO: Use CODEC21 instead of PNG.
 
 ```
 cat script_to_png.c | grep gcc | bash
 ```
 
-Open the html in the browser like below.
+Open the html in the browser like below. The secure link can be found in the script output.
 
 ```
 https://theme25.com/826c3607194640b63f9beb42a6ed182e76700b1c8d120049a588f6ffc87ececd.tig?Content-Type=text/html
@@ -49,4 +49,10 @@ Just enter the terminal stream URL on the page that comes from the output of the
 
 ```
 https://www.theme25.com/b258f2e24b31bdb629f48ce28cc8aa59b2ab4aa3bc14c21e1840801493c65359.tig?Content-Type=image/png
+```
+
+This is the example web page that opens a stream right away. Stream urls usually point to two internal urls, one receiving the media, the other one forwarding the clicks and typing on the webpage.
+
+```
+open https://www.theme25.com/345b6a50c6bc0ae0c120f134f7a98003bcc8e411cdccdc7ff52c9586bd2a29d0.tig?Content-Type=text/html#https://www.theme25.com/49a7ca504add5d00a8f66dd4f3ddc62ef6e61d4ebb733f0fbbf6c5e50dcacf13.tig?Content-Type=text/plain
 ```
