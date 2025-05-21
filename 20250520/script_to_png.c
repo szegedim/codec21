@@ -1,5 +1,6 @@
 /*
-export PIPE_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=text/plain"; export STDIN_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?append=1"; export STDOUT_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png"; printf "$STDIN_PATH\n$STDOUT_PATH\n" | curl -X PUT --data-binary @- "$PIPE_PATH"; echo; echo $PIPE_PATH; gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && (./my_script.sh | ./script_to_png.out "$STDOUT_PATH")
+cat typer.c | grep gcc | bash
+export PIPE_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=text/plain"; export STDIN_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?append=1"; export STDOUT_PATH="https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png"; printf "$STDIN_PATH\n$STDOUT_PATH\n" | curl -X PUT --data-binary @- "$PIPE_PATH"; echo; echo $PIPE_PATH; gcc script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && ((while true; do curl "$STDIN_PATH&take=1" | ./typer; sleep 1; done) | ./my_script.sh | ./script_to_png.out "$STDOUT_PATH")
 
  script_to_png.c -o script_to_png.out -I/usr/include/freetype2 -lpng -lfreetype -lcurl -lpthread -lz -lm && (./my_script.sh | ./script_to_png.out https://www.theme25.com/$(uuidgen | sha256sum | cut -d' ' -f1).tig?Content-Type=image/png)
 */

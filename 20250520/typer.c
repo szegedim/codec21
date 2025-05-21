@@ -32,9 +32,11 @@ int main() {
                 shift_active_for_next = 1;
             } else if (strcmp(typed_part, "Enter.") == 0) {
                 putchar('\n');
+                fflush(stdout);
                 shift_active_for_next = 0; // Reset shift state
             } else if (strcmp(typed_part, " .") == 0) { // Double space
                 putchar(' ');
+                fflush(stdout);
                 shift_active_for_next = 0; // Reset shift state
             } else if (strncmp(typed_part, "shift ", strlen("shift ")) == 0 &&
                        strlen(typed_part) == strlen("shift ") + 2 &&
@@ -42,6 +44,7 @@ int main() {
                 // Handles "shift X." directly (e.g., "shift H.", "shift !.")
                 char c = typed_part[strlen("shift ")];
                 putchar(toupper(c));
+                fflush(stdout);
                 shift_active_for_next = 0; // This type of shift doesn't carry over
             } else if (strlen(typed_part) == 2 && typed_part[1] == '.') {
                 // Handles single characters like "e."
@@ -51,6 +54,7 @@ int main() {
                 } else {
                     putchar(c);
                 }
+                fflush(stdout);
                 shift_active_for_next = 0; // Reset shift state after typing the character
             }
             // Other "Typed characters" variants not explicitly handled are ignored.
