@@ -202,9 +202,9 @@
             
             // Construct the action text
             if (modifiers.length > 0) {
-                actionText = `Typed characters ${modifiers.join('+')} ${event.key}.`;
+                actionText = `Typed characters ${modifiers.join('+')} ${event.key}.\n`;
             } else {
-                actionText = `Typed characters ${event.key}.`;
+                actionText = `Typed characters ${event.key}.\n`;
             }
             
             // Send the action to the server
@@ -222,7 +222,7 @@
             const xFormatted = x.toFixed(2);
             const yFormatted = y.toFixed(2);
             
-            const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.`;
+            const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.\n`;
             sendAction(actionText, interactionUrl);
         }
         
@@ -241,7 +241,7 @@
                 const xFormatted = x.toFixed(2);
                 const yFormatted = y.toFixed(2);
                 
-                const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.`;
+                const actionText = `Click at coordinates ${xFormatted} and ${yFormatted}.\n`;
                 sendAction(actionText, interactionUrl);
             } 
             else if (touches.length > 1) {
@@ -254,7 +254,7 @@
                     touchPoints.push(`${x.toFixed(2)} and ${y.toFixed(2)}`);
                 }
                 
-                const actionText = `Multitouch at coordinates ${touchPoints.join(' and ')}.`;
+                const actionText = `Multitouch at coordinates ${touchPoints.join(' and ')}.\n`;
                 sendAction(actionText, interactionUrl);
             }
         }
